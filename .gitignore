@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+venv/
+
+# Environment secrets — never commit
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Prisma local databases
+*.db
+
+# Runtime uploads
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Logs
+*.log
+npm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code local settings
+.vscode/*
+!.vscode/extensions.json
