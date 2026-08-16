@@ -4,12 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import Base, SessionLocal, engine
 
-# Import all models so SQLAlchemy metadata discovers them before create_all.
+# Import all models so SQLAlchemy metadata discovers them before create_all
 import app.models  # noqa: F401
 
 from app.api.routes import auth as auth_router
 from app.api.routes import logistics as logistics_router
 from app.api.routes import procurement as procurement_router
+from app.api.routes import suppliers as suppliers_router
+from app.api.routes import finance as finance_router
 
 # ── Create tables (prototype-only; use Alembic in production) ─────
 Base.metadata.create_all(bind=engine)
@@ -52,9 +54,8 @@ app.add_middleware(
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(logistics_router.router, prefix="/api")
 app.include_router(procurement_router.router, prefix="/api")
-
-from app.api.routes import suppliers as suppliers_router
 app.include_router(suppliers_router.router, prefix="/api")
+app.include_router(finance_router.router, prefix="/api")
 
 # ── Health ────────────────────────────────────────────────────────
 @app.get("/health", tags=["health"])

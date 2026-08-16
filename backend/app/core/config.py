@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     # Gemini
     GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-flash-latest"
+    GEMINI_MODEL: str = "gemini-3.1-flash-lite"
 
     model_config = SettingsConfigDict(
         env_file=".env",

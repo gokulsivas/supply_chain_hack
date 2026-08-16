@@ -2,7 +2,6 @@ from datetime import datetime, timezone, timedelta
 import uuid
 
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 
 from app.models.procurement import PurchaseRequest, PurchaseOrder, PurchaseOrderItem, Supplier
@@ -10,14 +9,19 @@ from app.models.logistics import Shipment, Truck
 from app.services.supplier_service import calculate_supplier_recommendations
 
 def next_purchase_order_code(db: Session) -> str:
-    """Generate PO-2026-0001 format string."""
-    year = datetime.utcnow().year
+    """Generates sequential PO codes in PO-2026-0001 format."""
+    year = datetime.now(timezone.utc).year
     prefix = f"PO-{year}-"
-    last_po = db.query(PurchaseOrder).filter(PurchaseOrder.po_code.like(f"{prefix}%")).order_by(PurchaseOrder.po_code.desc()).first()
+    last_po = db.query(PurchaseOrder).filter(
+        PurchaseOrder.po_code.like(f"{prefix}%")
+    ).order_by(PurchaseOrder.po_code.desc()).first()
     
     if last_po:
-        last_num = int(last_po.po_code.split("-")[-1])
-        next_num = last_num + 1
+        try:
+            last_num = int(last_po.po_code.split("-")[-1])
+            next_num = last_num + 1
+        except Exception:
+            next_num = 1
     else:
         next_num = 1
         
@@ -34,39 +38,37 @@ def approve_supplier_and_create_po(db: Session, purchase_request: PurchaseReques
         )
         
     recs = calculate_supplier_recommendations(db, purchase_request)
-    
     selected_rec = next((r for r in recs.recommendations if r.supplier.id == supplier_id), None)
     if not selected_rec:
         raise ValueError("Selected supplier is not eligible or active.")
         
-    supplier = db.query(Supplier).get(supplier_id)
+    supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
     if not supplier:
         raise ValueError("Supplier not found.")
 
-    # 1. Update PR
+    pr_item = purchase_request.items[0]
+
+    # 1. Update PR Status & Snapshot in Database
     purchase_request.recommended_supplier_id = supplier_id
     purchase_request.supplier_recommendation_json = recs.model_dump(mode="json")
     purchase_request.status = "APPROVED"
 
-    # 2. Create PO
+    # 2. Persist Purchase Order in Database
     po_code = next_purchase_order_code(db)
     po = PurchaseOrder(
         po_code=po_code,
         purchase_request_id=purchase_request.id,
         supplier_id=supplier_id,
-        total_amount=selected_rec.unit_price * selected_rec.available_capacity, # Will fix capacity to actual qty below
-        delivery_location=purchase_request.delivery_location,
+        total_amount=selected_rec.unit_price * pr_item.quantity,
+        delivery_location=purchase_request.delivery_location or "Chennai Warehouse DC-1",
         expected_delivery_date=datetime.now(timezone.utc) + timedelta(days=selected_rec.lead_time_days),
         status="ISSUED",
         recommendation_score=selected_rec.score_breakdown.overall_score
     )
-    
-    # Pr item
-    pr_item = purchase_request.items[0]
-    po.total_amount = selected_rec.unit_price * pr_item.quantity
     db.add(po)
     db.flush()
     
+    # 3. Persist PO Line Item
     po_item = PurchaseOrderItem(
         purchase_order_id=po.id,
         product_id=pr_item.product_id,
@@ -77,48 +79,42 @@ def approve_supplier_and_create_po(db: Session, purchase_request: PurchaseReques
     db.add(po_item)
     db.flush()
 
-    # 3. Create Shipment
-    ship_uuid = str(uuid.uuid4())
-    shipment_code = f"SHP-PO-{po_code.split('-')[-1]}"
-    tracking_number = f"TRK-PO-{po_code.split('-')[-1]}"
-    
-    origin = supplier.city if supplier.city else "Supplier facility"
+    # 4. Create Linked Shipment (E2 Integration)
+    ship_num = po_code.split('-')[-1]
+    shipment_code = f"SHP-PO-{ship_num}"
+    tracking_number = f"TRK-PO-{ship_num}"
+    origin = supplier.city if supplier.city else "Supplier Facility"
     
     shipment = Shipment(
-        id=ship_uuid,
+        id=str(uuid.uuid4()),
         shipment_code=shipment_code,
         tracking_number=tracking_number,
         purchase_order_reference=po_code,
         purchase_order_id=po.id,
         origin_location=origin,
-        destination_location=purchase_request.delivery_location,
+        destination_location=po.delivery_location,
         status="IN_TRANSIT"
     )
     db.add(shipment)
     db.flush()
     
-    # 4. Create Truck
-    truck_code = f"TRK-{po_code.split('-')[-1]}"
-    trailer_id = f"TRL-{po_code.split('-')[-1]}0"
-    
+    # 5. Create Linked Truck (E2 Real-Time Simulation)
     eta = datetime.now(timezone.utc) + timedelta(days=selected_rec.lead_time_days)
-    
     truck = Truck(
-        truck_code=truck_code,
-        trailer_id=trailer_id,
+        truck_code=f"TRK-{ship_num}",
+        trailer_id=f"TRL-{ship_num}0",
         shipment_id=shipment.id,
         status="ASSIGNED",
-        current_lat=13.0827, # generic demo origin
+        current_lat=13.0827,
         current_lng=80.2707,
         progress_percent=0,
         original_eta=eta,
         current_eta=eta,
         delay_minutes=0,
-        priority=purchase_request.priority
+        priority=purchase_request.priority or "STANDARD"
     )
     db.add(truck)
     
     db.commit()
     db.refresh(po)
-    
     return po

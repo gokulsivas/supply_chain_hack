@@ -8,13 +8,27 @@ from app.models.user import User
 from app.schemas.procurement import CreatePurchaseRequestRequest
 
 def find_or_create_product(db: Session, name: str) -> Product:
-    sku_base = re.sub(r"[^A-Z0-9]+", "-", name.strip().upper()).strip("-")
-    if not sku_base:
-        sku_base = "ITEM"
+    raw_name = name.strip().lower()
     
-    product = db.query(Product).filter(Product.sku == sku_base).first()
+    # 1. Fuzzy match against standard catalog categories
+    if any(k in raw_name for k in ["packag", "pallet", "box", "carton", "material"]):
+        target_sku = "PACKAGING_MATERIAL"
+    elif any(k in raw_name for k in ["laptop", "computer", "notebook", "pc"]):
+        target_sku = "LAPTOP"
+    elif any(k in raw_name for k in ["scanner", "barcode", "reader"]):
+        target_sku = "BARCODE_SCANNER"
+    else:
+        target_sku = re.sub(r"[^A-Z0-9]+", "_", name.strip().upper()).strip("_")
+        if not target_sku:
+            target_sku = "ITEM"
+
+    # 2. Check if product already exists in DB
+    product = db.query(Product).filter(
+        (Product.sku == target_sku) | (func.lower(Product.name) == raw_name)
+    ).first()
+
     if not product:
-        product = Product(sku=sku_base, name=name.strip())
+        product = Product(sku=target_sku, name=name.strip(), unit="unit")
         db.add(product)
         db.commit()
         db.refresh(product)
@@ -45,8 +59,6 @@ def next_purchase_request_code(db: Session) -> str:
 
 def create_purchase_request(db: Session, current_user: User, payload: CreatePurchaseRequestRequest) -> PurchaseRequest:
     product = find_or_create_product(db, payload.item)
-    
-    # In a fully robust app, we'd do this atomically or handle concurrent sequence generation safely
     req_code = next_purchase_request_code(db)
     
     pr = PurchaseRequest(

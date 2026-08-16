@@ -1,19 +1,28 @@
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
 from app.models.procurement import PurchaseRequest, Supplier, SupplierProduct
-from app.schemas.supplier_po import SupplierRecommendationsResponse, SupplierRecommendationResponse, SupplierScoreBreakdown, SupplierResponse
+from app.schemas.supplier_po import (
+    SupplierRecommendationsResponse, 
+    SupplierRecommendationResponse, 
+    SupplierScoreBreakdown, 
+    SupplierResponse
+)
 
 def calculate_supplier_recommendations(db: Session, purchase_request: PurchaseRequest) -> SupplierRecommendationsResponse:
+    """
+    Computes multi-factor ranked supplier recommendations from PostgreSQL/SQLite.
+    Balances unit price, quality rating, on-time delivery rate, capacity, and lead time.
+    """
     if not purchase_request.items:
         raise ValueError("Purchase request has no items.")
     
-    # We assume 1 item per PR for this demo based on Stage 1 implementation.
     pr_item = purchase_request.items[0]
     requested_qty = pr_item.quantity
     product_id = pr_item.product_id
 
-    # Find eligible supplier products
+    # 1. Fetch active suppliers offering this product with sufficient capacity
     supplier_products = db.query(SupplierProduct).join(Supplier).filter(
         and_(
             SupplierProduct.product_id == product_id,
@@ -29,11 +38,11 @@ def calculate_supplier_recommendations(db: Session, purchase_request: PurchaseRe
             recommendations=[]
         )
 
-    # Calculate min values for relative scoring
+    # 2. Benchmarks for relative normalization
     min_price = float(min(sp.unit_price for sp in supplier_products))
     
     def get_lead_time(sp: SupplierProduct) -> int:
-        return sp.lead_time_days if sp.lead_time_days is not None else sp.supplier.lead_time_days
+        return sp.lead_time_days if sp.lead_time_days is not None else (sp.supplier.lead_time_days or 7)
 
     min_lead_time = float(min(get_lead_time(sp) for sp in supplier_products))
 
@@ -45,14 +54,14 @@ def calculate_supplier_recommendations(db: Session, purchase_request: PurchaseRe
         lead_time = float(get_lead_time(sp))
         capacity = sp.available_capacity
 
-        # Scores (0-100)
-        cost_score = (min_price / price) * 100 if price > 0 else 100
-        quality_score = float(supplier.quality_score)
-        delivery_score = float(supplier.delivery_score)
-        capacity_score = min((capacity / requested_qty) * 100, 100.0) if requested_qty > 0 else 100.0
-        lead_time_score = (min_lead_time / lead_time) * 100 if lead_time > 0 else 100
+        # 3. Normalized scores (0 to 100)
+        cost_score = (min_price / price * 100.0) if price > 0 else 100.0
+        quality_score = float(supplier.quality_score or 85.0)
+        delivery_score = float(supplier.delivery_score or 90.0)
+        capacity_score = min((capacity / requested_qty) * 100.0, 100.0) if requested_qty > 0 else 100.0
+        lead_time_score = (min_lead_time / lead_time * 100.0) if lead_time > 0 else 100.0
 
-        # Weighted Overall
+        # 4. Multi-Factor Formula (PR2 Specification)
         overall_score = (
             (cost_score * 0.30) +
             (quality_score * 0.25) +
@@ -61,13 +70,26 @@ def calculate_supplier_recommendations(db: Session, purchase_request: PurchaseRe
             (lead_time_score * 0.10)
         )
 
+        # 5. Explainable AI Decision Rationale
         reasons = []
-        if cost_score == 100:
-            reasons.append("Lowest eligible unit price")
-        reasons.append(f"Quality score: {quality_score:.0f}/100")
-        if capacity_score == 100:
-            reasons.append(f"Capacity covers {requested_qty} requested units")
-        reasons.append(f"Lead time: {int(lead_time)} days")
+        if cost_score >= 99.0:
+            reasons.append("Best Market Quote (Lowest Unit Price)")
+        else:
+            reasons.append(f"Price Competitiveness: {cost_score:.1f}% relative to lowest quote")
+
+        if quality_score >= 90:
+            reasons.append(f"High Reliability: Quality Rating {quality_score:.0f}/100")
+        else:
+            reasons.append(f"Standard Quality Rating: {quality_score:.0f}/100")
+
+        if delivery_score >= 90:
+            reasons.append(f"Historical On-Time Delivery Rate: {delivery_score:.0f}%")
+
+        if int(lead_time) == int(min_lead_time):
+            reasons.append(f"Fastest Fulfillment: {int(lead_time)} business days")
+        else:
+            est_date = (datetime.now(timezone.utc) + timedelta(days=lead_time)).strftime('%b %d')
+            reasons.append(f"Lead Time: {int(lead_time)} days (Est. arrival: {est_date})")
 
         breakdown = SupplierScoreBreakdown(
             cost_score=round(cost_score, 2),
@@ -86,10 +108,10 @@ def calculate_supplier_recommendations(db: Session, purchase_request: PurchaseRe
             available_capacity=capacity,
             lead_time_days=int(lead_time),
             score_breakdown=breakdown,
-            is_recommended=False # Will set top one to True later
+            is_recommended=False
         ))
 
-    # Sort highest score first
+    # 6. Rank descending by total score
     recommendations.sort(key=lambda x: x.score_breakdown.overall_score, reverse=True)
 
     if recommendations:
