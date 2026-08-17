@@ -2,6 +2,7 @@
 Logistics API Routes — E2 Telematics, Tracking, Yard & Dock Management
 """
 
+import math
 import random
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -9,6 +10,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from app.models.procurement import PurchaseOrder, PurchaseRequest
 
 from app.core.database import get_db
 from app.models.logistics import Truck, LogisticsAlert, YardSlot, Dock, DockAssignment, Shipment
@@ -47,19 +49,45 @@ CITY_COORDS = {
     "jaipur": (26.9124, 75.7873),
     "kochi": (9.9312, 76.2673),
     "cochin": (9.9312, 76.2673),
-    "surat": (21.1702, 72.8311),
+    "balurghat": (25.2214, 88.7667),
+    "baksa": (26.6873, 91.5984),
+    "guwahati": (26.1445, 91.7362),
+    "siliguri": (26.7271, 88.3953),
+    "patna": (25.5941, 85.1376),
+    "bhubaneswar": (20.2961, 85.8245),
     "lucknow": (26.8467, 80.9462),
     "chandigarh": (30.7333, 76.7794),
+    "surat": (21.1702, 72.8311),
+    "indore": (22.7196, 75.8577),
+    "nagpur": (21.1458, 79.0882),
+    "visakhapatnam": (17.6868, 83.2185),
+    "vizag": (17.6868, 83.2185),
+    "madurai": (9.9252, 78.1198),
+    "trichy": (10.7905, 78.7047),
+    "ranchi": (23.3441, 85.3096),
+    "jamshedpur": (22.8046, 86.2029),
 }
 
 def resolve_coords(city_name: str, default=(13.0827, 80.2707)):
     if not city_name:
         return default
-    c = str(city_name).lower()
+    c = str(city_name).lower().strip()
     for k, v in CITY_COORDS.items():
         if k in c:
             return v
-    return default
+    # Deterministic fallback coordinate within Indian territory based on city hash
+    h = abs(hash(c))
+    lat = 12.0 + (h % 1500) / 100.0  # 12.0 to 27.0 N
+    lng = 74.0 + ((h // 1500) % 1400) / 100.0  # 74.0 to 88.0 E
+    return (round(lat, 4), round(lng, 4))
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2.0) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2.0) ** 2
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return round(R * c * 1.25, 1)  # 1.25 factor for highway road winding distance
 
 
 def ensure_truck_metadata(truck: Truck, db: Session):
@@ -68,11 +96,6 @@ def ensure_truck_metadata(truck: Truck, db: Session):
     truck.cargo_type = truck.load_type or "Procured Goods"
     truck.progress = (truck.progress_percent or 0) / 100.0
     
-    if truck.current_eta:
-        truck.eta = truck.current_eta.strftime("%b %d, %I:%M %p")
-    else:
-        truck.eta = None
-        
     if getattr(truck, "shipment", None):
         truck.po_number = truck.shipment.purchase_order_reference or "PO-2026-0042"
         truck.origin_name = truck.shipment.origin_location or "Chennai DC"
@@ -84,6 +107,24 @@ def ensure_truck_metadata(truck: Truck, db: Session):
         
     truck.origin_lat, truck.origin_lng = resolve_coords(truck.origin_name, default=(13.0827, 80.2707))
     truck.dest_lat, truck.dest_lng = resolve_coords(truck.dest_name, default=(12.9716, 77.5946))
+
+    # Compute dynamic real-time ETA based on remaining road distance & delay
+    road_dist = haversine_km(truck.origin_lat, truck.origin_lng, truck.dest_lat, truck.dest_lng)
+    prog = float(truck.progress_percent or 0) / 100.0
+    remaining_hours = max(0.2, (road_dist * (1.0 - prog)) / 45.0) + (float(truck.delay_minutes or 0) / 60.0)
+    
+    truck.current_eta = datetime.now(timezone.utc) + timedelta(hours=remaining_hours)
+    if not getattr(truck, "original_eta", None):
+        truck.original_eta = datetime.now(timezone.utc) + timedelta(hours=max(0.2, road_dist / 45.0))
+    truck.eta = truck.current_eta.strftime("%b %d, %I:%M %p")
+
+    # Interpolate current lat/lng along the actual corridor
+    if prog >= 1.0:
+        truck.current_lat = truck.dest_lat
+        truck.current_lng = truck.dest_lng
+    else:
+        truck.current_lat = round(truck.origin_lat + (truck.dest_lat - truck.origin_lat) * prog, 6)
+        truck.current_lng = round(truck.origin_lng + (truck.dest_lng - truck.origin_lng) * prog, 6)
 
     modified = False
     if not getattr(truck, "driver_name", None) or truck.driver_name in ["Unassigned", "Unknown", "None", ""]:
@@ -99,7 +140,6 @@ def ensure_truck_metadata(truck: Truck, db: Session):
     else:
         truck.cargo_type = truck.load_type
 
-    prog = float(truck.progress_percent or 0) / 100.0
     if prog >= 1.0:
         if truck.status != "DELIVERED":
             truck.status = "DELIVERED"
@@ -151,8 +191,40 @@ def search_tracking(query: str, db: Session = Depends(get_db)):
         po_num = f"PO-2026-{digits.zfill(4)}"
         shipment_num = f"SHP-PO-{digits.zfill(4)}"
 
-        o_lat, o_lng = 12.9716, 77.5946
-        d_lat, d_lng = 13.0827, 80.2707
+        # Check if query matches a PurchaseOrder or PurchaseRequest in DB
+        po = db.query(PurchaseOrder).filter(
+            (PurchaseOrder.po_code.ilike(f"%{clean_query}%")) |
+            (PurchaseOrder.id.ilike(f"%{clean_query}%"))
+        ).first()
+
+        dest_city = None
+        cargo_title = None
+        if po:
+            dest_city = po.delivery_location
+            if po.purchase_request and po.purchase_request.items:
+                cargo_title = po.purchase_request.items[0].product.name
+
+        if not dest_city:
+            pr = db.query(PurchaseRequest).filter(
+                (PurchaseRequest.request_code.ilike(f"%{clean_query}%")) |
+                (PurchaseRequest.id.ilike(f"%{clean_query}%"))
+            ).first()
+            if pr:
+                dest_city = pr.delivery_location
+                if pr.items:
+                    cargo_title = pr.items[0].product.name
+
+        if not dest_city:
+            dest_city = clean_query if any(k in clean_query.lower() for k in CITY_COORDS) else "Balurghat DC"
+        if not cargo_title:
+            cargo_title = random.choice(CARGO_POOL)
+
+        origin_city = "Chennai DC"
+        o_lat, o_lng = resolve_coords(origin_city, default=(13.0827, 80.2707))
+        d_lat, d_lng = resolve_coords(dest_city, default=(25.2214, 88.7667))
+
+        road_dist = haversine_km(o_lat, o_lng, d_lat, d_lng)
+        transit_hours = max(2.5, road_dist / 45.0)
 
         ship_id = str(uuid.uuid4())
         shipment = Shipment(
@@ -160,8 +232,8 @@ def search_tracking(query: str, db: Session = Depends(get_db)):
             shipment_code=f"SHP-PO-{digits.zfill(4)}",
             tracking_number=f"TRK-TRACK-{digits}",
             purchase_order_reference=po_num,
-            origin_location="Bengaluru Logistics Hub",
-            destination_location="Chennai DC Central",
+            origin_location=origin_city,
+            destination_location=dest_city,
             status="IN_TRANSIT"
         )
         db.add(shipment)
@@ -171,14 +243,14 @@ def search_tracking(query: str, db: Session = Depends(get_db)):
             truck_code=truck_num,
             trailer_id=f"TRL-{digits.zfill(5)}",
             driver_name=random.choice(DRIVER_POOL),
-            load_type=random.choice(CARGO_POOL),
+            load_type=cargo_title,
             shipment_id=ship_id,
             status="IN_TRANSIT",
-            progress_percent=45,
-            current_lat=round(o_lat + (d_lat - o_lat) * 0.45, 6),
-            current_lng=round(o_lng + (d_lng - o_lng) * 0.45, 6),
-            current_eta=datetime.now(timezone.utc) + timedelta(hours=3, minutes=15),
-            original_eta=datetime.now(timezone.utc) + timedelta(hours=3),
+            progress_percent=35,
+            current_lat=round(o_lat + (d_lat - o_lat) * 0.35, 6),
+            current_lng=round(o_lng + (d_lng - o_lng) * 0.35, 6),
+            current_eta=datetime.now(timezone.utc) + timedelta(hours=transit_hours * 0.65),
+            original_eta=datetime.now(timezone.utc) + timedelta(hours=transit_hours),
             delay_minutes=0,
             priority="NORMAL",
             created_at=datetime.now(timezone.utc),

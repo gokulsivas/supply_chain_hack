@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import type { ShipmentInfo, TruckPosition } from "@/types/logistics";
+import type { TruckPosition } from "@/types/logistics";
 
 // ── Custom marker icons ─────────────────────────────────────────────
 const truckIcon = new L.Icon({
@@ -16,6 +16,28 @@ const truckIcon = new L.Icon({
   popupAnchor: [1, -34],
   shadowSize: [41, 41],
 });
+
+// ── Auto-adjust bounds when route changes ───────────────────────────
+function MapBoundsAdjuster({
+  origin,
+  dest,
+  current,
+}: {
+  origin: [number, number];
+  dest: [number, number];
+  current: [number, number];
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    try {
+      const bounds = L.latLngBounds([origin, dest, current]);
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 9 });
+    } catch {}
+  }, [origin[0], origin[1], dest[0], dest[1], current[0], current[1], map]);
+
+  return null;
+}
 
 // ── Animated marker sub-component ──────────────────────────────────
 interface AnimatedMarkerProps {
@@ -43,12 +65,7 @@ function AnimatedMarker({ lat, lng, children }: AnimatedMarkerProps) {
   );
 }
 
-// ── TruckMap ────────────────────────────────────────────────────────
-
-interface TruckMapProps {
-  truck: TruckPosition;
-}
-
+// ── Coordinate Dictionary with Comprehensive Indian Cities ───────────
 const CITY_COORDS: Record<string, [number, number]> = {
   chennai: [13.0827, 80.2707],
   bengaluru: [12.9716, 77.5946],
@@ -64,42 +81,81 @@ const CITY_COORDS: Record<string, [number, number]> = {
   ahmedabad: [23.0225, 72.5714],
   jaipur: [26.9124, 75.7873],
   kochi: [9.9312, 76.2673],
+  cochin: [9.9312, 76.2673],
+  balurghat: [25.2214, 88.7667],
+  baksa: [26.6873, 91.5984],
+  guwahati: [26.1445, 91.7362],
+  siliguri: [26.7271, 88.3953],
+  patna: [25.5941, 85.1376],
+  bhubaneswar: [20.2961, 85.8245],
+  lucknow: [26.8467, 80.9462],
+  chandigarh: [30.7333, 76.7794],
+  surat: [21.1702, 72.8311],
+  indore: [22.7196, 75.8577],
+  nagpur: [21.1458, 79.0882],
+  visakhapatnam: [17.6868, 83.2185],
+  vizag: [17.6868, 83.2185],
+  madurai: [9.9252, 78.1198],
+  trichy: [10.7905, 78.7047],
+  ranchi: [23.3441, 85.3096],
+  jamshedpur: [22.8046, 86.2029],
 };
 
 function getCoords(cityName?: string, fallback: [number, number] = [13.0827, 80.2707]): [number, number] {
   if (!cityName) return fallback;
-  const lower = cityName.toLowerCase();
+  const lower = cityName.toLowerCase().trim();
   for (const [key, coords] of Object.entries(CITY_COORDS)) {
     if (lower.includes(key)) return coords;
   }
-  return fallback;
+  // Deterministic fallback for any unseen Indian location
+  let h = 0;
+  for (let i = 0; i < lower.length; i++) {
+    h = (h << 5) - h + lower.charCodeAt(i);
+    h |= 0;
+  }
+  const lat = 12.0 + (Math.abs(h) % 1500) / 100.0;
+  const lng = 74.0 + (Math.floor(Math.abs(h) / 1500) % 1400) / 100.0;
+  return [Number(lat.toFixed(4)), Number(lng.toFixed(4))];
+}
+
+interface TruckMapProps {
+  truck: TruckPosition;
 }
 
 export default function TruckMap({ truck }: TruckMapProps) {
   const shipment = truck.shipment;
-  const isArrived = truck.status === "ARRIVED" || truck.status === "IN_YARD" || truck.status === "DOCKED";
+  const isArrived = truck.status === "ARRIVED" || truck.status === "IN_YARD" || truck.status === "DOCKED" || truck.status === "DELIVERED";
   const isDelayed = truck.delay_minutes > 0;
 
   const routeColor = isArrived ? "#10b981" : isDelayed ? "#f59e0b" : "#2563eb";
 
-  const [originLat, originLng] = getCoords(shipment?.origin_location, [13.0827, 80.2707]);
-  const [destLat, destLng] = getCoords(shipment?.destination_location, [12.9716, 77.5946]);
+  const originName = shipment?.origin_location || (truck as any).origin_name || "Chennai Facility";
+  const destName = shipment?.destination_location || (truck as any).dest_name || "Balurghat Hub";
 
-  const originName = shipment?.origin_location || "Origin Facility";
-  const destName = shipment?.destination_location || "Destination Hub";
+  const [originLat, originLng] = getCoords(originName, [13.0827, 80.2707]);
+  const [destLat, destLng] = getCoords(destName, [25.2214, 88.7667]);
+
+  const currentLat = truck.current_lat || originLat;
+  const currentLng = truck.current_lng || originLng;
 
   return (
-    <div className="flex flex-col gap-2 h-full min-h-[360px]">
-      <div className="w-full h-full min-h-[360px] rounded-xl overflow-hidden border border-border relative z-0 shadow-sm">
+    <div className="flex flex-col gap-2 h-full min-h-[380px]">
+      <div className="w-full h-full min-h-[380px] rounded-xl overflow-hidden border border-border relative z-0 shadow-xs">
         <MapContainer
-          center={[truck.current_lat, truck.current_lng]}
-          zoom={7}
+          center={[currentLat, currentLng]}
+          zoom={6}
           scrollWheelZoom={true}
           style={{ height: "100%", width: "100%", zIndex: 0 }}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+
+          <MapBoundsAdjuster
+            origin={[originLat, originLng]}
+            dest={[destLat, destLng]}
+            current={[currentLat, currentLng]}
           />
 
           <Marker position={[originLat, originLng]} icon={truckIcon}>
@@ -114,13 +170,13 @@ export default function TruckMap({ truck }: TruckMapProps) {
             </Popup>
           </Marker>
 
-          <AnimatedMarker lat={truck.current_lat} lng={truck.current_lng}>
+          <AnimatedMarker lat={currentLat} lng={currentLng}>
             <Popup>
               <div className="text-xs space-y-1">
                 <p className="font-bold text-sm">{truck.truck_code} ({truck.trailer_id})</p>
                 <p>Status: <span className="font-semibold">{truck.status}</span></p>
                 <p>Progress: <span className="font-semibold">{truck.progress_percent}%</span></p>
-                <p>Coordinates: {truck.current_lat.toFixed(4)}, {truck.current_lng.toFixed(4)}</p>
+                <p>Telemetry: {currentLat.toFixed(4)}, {currentLng.toFixed(4)}</p>
                 {truck.delay_minutes > 0 && (
                   <p className="text-red-600 font-semibold">⚠ Delayed by {truck.delay_minutes} min</p>
                 )}
@@ -131,7 +187,7 @@ export default function TruckMap({ truck }: TruckMapProps) {
           <Polyline
             positions={[
               [originLat, originLng],
-              [truck.current_lat, truck.current_lng],
+              [currentLat, currentLng],
               [destLat, destLng],
             ]}
             color={routeColor}
@@ -142,14 +198,14 @@ export default function TruckMap({ truck }: TruckMapProps) {
         </MapContainer>
       </div>
 
-      <div className="text-xs text-muted-foreground flex flex-col sm:flex-row sm:justify-between px-1 bg-slate-50 p-2 rounded-lg border">
+      <div className="text-xs text-muted-foreground flex flex-col sm:flex-row sm:justify-between px-3 py-2 bg-slate-50 rounded-lg border">
         <div>
           <span className="font-medium text-foreground">Live Telemetry:</span>{" "}
-          {truck.current_lat.toFixed(4)}° N, {truck.current_lng.toFixed(4)}° E
+          {currentLat.toFixed(4)}° N, {currentLng.toFixed(4)}° E
         </div>
         <div>
-          <span className="font-medium text-foreground">Corridor:</span>{" "}
-          {shipment?.origin_location ?? "Chennai DC"} → {shipment?.destination_location ?? "Bengaluru Hub"}
+          <span className="font-medium text-foreground">Route Corridor:</span>{" "}
+          {originName} → {destName}
         </div>
       </div>
     </div>
