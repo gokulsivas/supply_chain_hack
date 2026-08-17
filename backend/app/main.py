@@ -12,6 +12,7 @@ from app.api.routes import logistics as logistics_router
 from app.api.routes import procurement as procurement_router
 from app.api.routes import suppliers as suppliers_router
 from app.api.routes import finance as finance_router
+from app.api.routes import analytics as analytics_router
 
 # ── Create tables (prototype-only; use Alembic in production) ─────
 Base.metadata.create_all(bind=engine)
@@ -56,6 +57,7 @@ app.include_router(logistics_router.router, prefix="/api")
 app.include_router(procurement_router.router, prefix="/api")
 app.include_router(suppliers_router.router, prefix="/api")
 app.include_router(finance_router.router, prefix="/api")
+app.include_router(analytics_router.router, prefix="/api")
 
 # ── Health ────────────────────────────────────────────────────────
 @app.get("/health", tags=["health"])

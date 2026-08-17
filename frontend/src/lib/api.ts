@@ -1,3 +1,12 @@
+/**
+ * Centralised HTTP client.
+ *
+ * - One Axios instance for the entire app.
+ * - Base URL read strictly from NEXT_PUBLIC_API_URL with localhost fallback.
+ * - Attaches Authorization header when a token cookie is present.
+ * - Exports typed API-error helpers and endpoint methods.
+ */
+
 import axios, { AxiosError, type AxiosInstance } from "axios";
 import { getToken } from "@/lib/auth";
 import type { ApiErrorResponse, LoginRequest, LoginResponse } from "@/types/auth";
@@ -19,7 +28,8 @@ import type {
   PurchaseOrderResponse
 } from "@/types/procurement";
 
-// ── Axios instance with bulletproof fallback ─────────────────────
+// ── Axios instance with reliable fallback ────────────────────────
+
 const api: AxiosInstance = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api",
   headers: {
@@ -29,6 +39,8 @@ const api: AxiosInstance = axios.create({
   timeout: 15_000,
 });
 
+// ── Request interceptor — attach bearer token ─────────────────────
+
 api.interceptors.request.use((config) => {
   const token = getToken();
   if (token) {
@@ -37,12 +49,16 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// ── Response interceptor — surface errors cleanly ─────────────────
+
 api.interceptors.response.use(
   (response) => response,
   (error: AxiosError<ApiErrorResponse>) => {
     return Promise.reject(toApiError(error));
   }
 );
+
+// ── Error helpers ─────────────────────────────────────────────────
 
 export class ApiError extends Error {
   readonly status: number;
@@ -90,7 +106,7 @@ export function toApiError(error: AxiosError<ApiErrorResponse>): ApiError {
   }
 
   if (error.request) {
-    return new ApiError(0, "No response from backend. Make sure FastAPI server is running on port 8000.");
+    return new ApiError(0, "No response from backend server. Please verify FastAPI is running on port 8000.");
   }
 
   return new ApiError(0, error.message);
@@ -100,13 +116,39 @@ export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
 
-// ── Auth API helpers ──────────────────────────────────────────────
+// ── Auth API helpers (Login & Dynamic Signup) ─────────────────────
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  name: string;
+  role?: string;
+}
+
 export async function login(payload: LoginRequest): Promise<LoginResponse> {
   const response = await api.post<LoginResponse>("/auth/login", payload);
   return response.data;
 }
 
+export async function registerUser(payload: RegisterRequest): Promise<LoginResponse> {
+  // 1. Create the user in PostgreSQL
+  await api.post("/auth/register", {
+    email: payload.email,
+    password: payload.password,
+    name: payload.name,
+    role: payload.role || "USER",
+  });
+
+  // 2. Automatically log the user in to receive session JWT
+  const response = await api.post<LoginResponse>("/auth/login", {
+    email: payload.email,
+    password: payload.password,
+  });
+  return response.data;
+}
+
 // ── Logistics API helpers ───────────────────────────────────────────
+
 export async function searchTracking(query: string): Promise<TrackingSearchResponse> {
   const response = await api.get<TrackingSearchResponse>(`/logistics/track/${encodeURIComponent(query)}`);
   return response.data;
@@ -138,6 +180,7 @@ export async function listLogisticsAlerts(): Promise<LogisticsAlert[]> {
 }
 
 // ── Yard & Dock API helpers ───────────────────────────────────────
+
 export async function getYard(): Promise<YardSlotResponse[]> {
   const response = await api.get<YardSlotResponse[]>("/logistics/yard");
   return response.data;
@@ -182,6 +225,7 @@ export async function resetLogisticsDemo(): Promise<{ status: string; message: s
 }
 
 // ── Procurement API helpers ───────────────────────────────────────
+
 export async function extractRequisition(message: string): Promise<ExtractionResultResponse> {
   const response = await api.post<ExtractionResultResponse>("/procurement/extract", { message });
   return response.data;

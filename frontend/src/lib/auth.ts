@@ -1,63 +1,56 @@
-/**
- * Browser-safe cookie helpers.
- *
- * All functions guard against SSR by checking `typeof document` before
- * accessing `document.cookie`. Never uses localStorage.
- *
- * Cookie name: "token"
- */
+const TOKEN_KEY = "token";
+const USER_KEY = "auth_user";
 
-const COOKIE_NAME = "token";
-
-/**
- * Read the auth token from the cookie jar.
- * Returns `null` during SSR or when the cookie is absent.
- */
-export function getToken(): string | null {
-  if (typeof document === "undefined") return null;
-
-  const match = document.cookie
-    .split("; ")
-    .find((row) => row.startsWith(`${COOKIE_NAME}=`));
-
-  return match ? decodeURIComponent(match.split("=")[1]) : null;
+// Helper to set a cookie via standard document.cookie
+function setCookie(name: string, value: string, days = 7) {
+  if (typeof document === "undefined") return;
+  const expires = new Date(Date.now() + days * 864e5).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
 }
 
-/**
- * Persist the auth token as a session cookie (no `max-age` → browser session).
- * Uses `SameSite=Strict` and `path=/`.
- *
- * Note: `Secure` is omitted here intentionally — dev runs on HTTP.
- * Add `; Secure` when deploying to HTTPS.
- */
+// Helper to read a cookie via standard document.cookie
+function getCookie(name: string): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const match = document.cookie.match(new RegExp(`(^|;\\s*)${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[2]) : undefined;
+}
+
+// Helper to delete a cookie
+function deleteCookie(name: string) {
+  if (typeof document === "undefined") return;
+  document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
+}
+
 export function setToken(token: string): void {
-  if (typeof document === "undefined") return;
-
-  document.cookie = [
-    `${COOKIE_NAME}=${encodeURIComponent(token)}`,
-    "path=/",
-    "SameSite=Strict",
-  ].join("; ");
+  setCookie(TOKEN_KEY, token, 7);
+  if (typeof window !== "undefined") {
+    localStorage.setItem(TOKEN_KEY, token);
+  }
 }
 
-/**
- * Remove the auth token by expiring the cookie immediately.
- */
+export function getToken(): string | undefined {
+  return getCookie(TOKEN_KEY) || (typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) || undefined : undefined);
+}
+
 export function clearToken(): void {
-  if (typeof document === "undefined") return;
-
-  document.cookie = [
-    `${COOKIE_NAME}=`,
-    "path=/",
-    "SameSite=Strict",
-    "max-age=0",
-  ].join("; ");
+  deleteCookie(TOKEN_KEY);
+  if (typeof window !== "undefined") {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  }
 }
 
-/**
- * Returns `true` if a token cookie is present (non-empty).
- * This is a presence check only — it does NOT verify the JWT signature.
- */
-export function isAuthenticated(): boolean {
-  return getToken() !== null;
+// Export alias for backward compatibility
+export const removeToken = clearToken;
+
+export function saveUser(user: any): void {
+  if (typeof window !== "undefined") {
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  }
+}
+
+export function getUser(): any | null {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(USER_KEY);
+  return raw ? JSON.parse(raw) : null;
 }

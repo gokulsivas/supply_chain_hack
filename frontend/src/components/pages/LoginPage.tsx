@@ -1,233 +1,282 @@
 "use client";
 
-/**
- * LoginPage — Supply Chain Control Tower sign-in screen.
- *
- * Responsibilities:
- * - Zod-validated form (email + password)
- * - POST /auth/login via typed login() helper
- * - Stores JWT via setToken() cookie helper only
- * - Redirects to /dashboard on success
- * - Clear error states: field validation, 401, network
- * - Motion entrance animation (respects prefers-reduced-motion)
- * - Keyboard accessible, focus-visible, responsive from 320px
- */
-
-import { useState, useTransition } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion, useReducedMotion } from "motion/react";
-import { z } from "zod";
-import { ShieldCheck, Mail, LockKeyhole, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
-
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { login, registerUser, isApiError } from "@/lib/api";
+import { setToken, saveUser } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { ShieldCheck, Loader2, ArrowRight, UserPlus, LogIn, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 
-import { login, isApiError } from "@/lib/api";
-import { setToken } from "@/lib/auth";
-
-// ── Validation schema ─────────────────────────────────────────────
-
-const loginSchema = z.object({
-  email: z.string().email("Enter a valid email address."),
-  password: z.string().min(1, "Password is required."),
-});
-
-type LoginFormData = z.infer<typeof loginSchema>;
-type FieldErrors = Partial<Record<keyof LoginFormData, string>>;
-
-// ── Component ─────────────────────────────────────────────────────
-
-export default function LoginPage() {
+export function LoginPage() {
   const router = useRouter();
-  const shouldReduceMotion = useReducedMotion();
-  const [isPending, startTransition] = useTransition();
-
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  
+  // Form fields
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [serverError, setServerError] = useState<string | null>(null);
+  const [role, setRole] = useState("USER");
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const initialState = shouldReduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 12 };
-  const animateState = { opacity: 1, y: 0 };
-  const transition = { duration: 0.22, ease: "easeOut" as const } as const;
-
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setServerError(null);
+    setIsLoading(true);
+    setErrorMsg(null);
 
-    const result = loginSchema.safeParse({ email, password });
-    if (!result.success) {
-      const errors: FieldErrors = {};
-      for (const issue of result.error.issues) {
-        const field = issue.path[0] as keyof LoginFormData;
-        if (!errors[field]) errors[field] = issue.message;
-      }
-      setFieldErrors(errors);
-      return;
-    }
-    setFieldErrors({});
-
-    startTransition(async () => {
-      try {
-        const data = await login({ email, password });
-        setToken(data.access_token);
-        router.push("/dashboard");
-      } catch (err) {
-        if (isApiError(err)) {
-          if (err.isUnauthorized) {
-            setServerError("Invalid credentials. Check your email and password.");
-          } else if (err.status === 0) {
-            setServerError("Unable to reach the server. Check your network connection.");
-          } else {
-            setServerError(err.detail || "An unexpected error occurred. Please try again.");
-          }
-        } else {
-          setServerError("An unexpected error occurred. Please try again.");
+    try {
+      if (mode === "signup") {
+        if (!name.trim()) {
+          setErrorMsg("Please enter your full name.");
+          setIsLoading(false);
+          return;
         }
+        // Register in PostgreSQL & retrieve session token
+        const res = await registerUser({
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+          role,
+        });
+
+        setToken(res.access_token);
+        if (res.user) saveUser(res.user);
+
+        toast.success(`Account created successfully! Welcome, ${name}.`);
+        router.push("/dashboard");
+      } else {
+        // Authenticate existing user
+        const res = await login({
+          email: email.trim().toLowerCase(),
+          password,
+        });
+
+        setToken(res.access_token);
+        if (res.user) saveUser(res.user);
+
+        toast.success("Signed in successfully!");
+        router.push("/dashboard");
       }
-    });
+    } catch (err: any) {
+      if (isApiError(err)) {
+        setErrorMsg(err.detail || "Authentication failed. Please check your credentials.");
+      } else if (err.response?.data?.detail) {
+        setErrorMsg(err.response.data.detail);
+      } else {
+        setErrorMsg(mode === "signup" ? "User already exists or registration failed." : "Invalid email or password.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-dvh flex flex-col items-center justify-center bg-background px-4 py-12">
-      <motion.div
-        initial={initialState}
-        animate={animateState}
-        transition={transition}
-        className="w-full max-w-sm"
-      >
-        <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <div
-            className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm"
-            aria-hidden="true"
-          >
-            <ShieldCheck className="size-5" strokeWidth={1.75} />
+    <div className="min-h-screen w-full flex items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
+      {/* Background Glow */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="max-w-md w-full relative z-10 space-y-6">
+        
+        {/* Brand Header */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-500/30 mb-2">
+            <ShieldCheck className="size-6" strokeWidth={2} />
           </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Cognizant E2 + PR2
-            </p>
-            <h1 className="mt-0.5 text-xl font-semibold tracking-tight text-foreground">
-              Supply Chain Control Tower
-            </h1>
-          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-white">
+            Supply Chain Control Tower
+          </h1>
+          <p className="text-xs text-slate-400">
+            Autonomous Procure-to-Pay (PR2) & Live Fleet Tracker (E2)
+          </p>
         </div>
 
-        <Card className="shadow-sm">
-          <CardHeader className="pb-0">
-            <CardTitle className="text-base">Sign in</CardTitle>
-            <CardDescription>Enter your credentials to access the control tower.</CardDescription>
+        <Card className="border-slate-800 bg-slate-900/90 backdrop-blur-xl shadow-2xl text-slate-100">
+          <CardHeader className="pb-4">
+            
+            {/* Mode Switcher Tabs */}
+            <div className="grid grid-cols-2 p-1 bg-slate-950/80 rounded-lg border border-slate-800 mb-4">
+              <button
+                type="button"
+                onClick={() => { setMode("login"); setErrorMsg(null); }}
+                className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-md transition-all ${
+                  mode === "login" 
+                    ? "bg-blue-600 text-white shadow" 
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <LogIn className="size-3.5" /> Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode("signup"); setErrorMsg(null); }}
+                className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-md transition-all ${
+                  mode === "signup" 
+                    ? "bg-blue-600 text-white shadow" 
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <UserPlus className="size-3.5" /> Create Account
+              </button>
+            </div>
+
+            <CardTitle className="text-lg font-bold text-white">
+              {mode === "login" ? "Welcome back" : "Register new operator"}
+            </CardTitle>
+            <CardDescription className="text-xs text-slate-400">
+              {mode === "login" 
+                ? "Enter your email and password to access the tower." 
+                : "Create a verified profile saved directly to your PostgreSQL database."}
+            </CardDescription>
           </CardHeader>
 
-          <CardContent className="pt-4">
-            <form
-              onSubmit={handleSubmit}
-              noValidate
-              aria-label="Sign-in form"
-              className="flex flex-col gap-4"
-            >
-              {serverError && (
-                <Alert variant="destructive" role="alert" aria-live="assertive">
-                  <AlertCircle className="size-4" aria-hidden="true" />
-                  <AlertDescription>{serverError}</AlertDescription>
-                </Alert>
+          <form onSubmit={handleSubmit}>
+            <CardContent className="space-y-4">
+              
+              {errorMsg && (
+                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                  {errorMsg}
+                </div>
               )}
 
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="login-email">Email address</Label>
-                <div className="relative">
-                  <Mail
-                    className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                    aria-hidden="true"
-                  />
+              {/* Full Name (Sign Up only) */}
+              {mode === "signup" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="name" className="text-xs font-medium text-slate-300">
+                    Full Name
+                  </Label>
                   <Input
-                    id="login-email"
-                    type="email"
-                    autoComplete="email"
-                    inputMode="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
-                    }}
-                    aria-invalid={!!fieldErrors.email}
-                    aria-describedby={fieldErrors.email ? "email-error" : undefined}
-                    className="pl-9"
-                    disabled={isPending}
+                    id="name"
+                    type="text"
+                    placeholder="e.g. Alex Morgan"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-600 focus-visible:ring-blue-500"
                   />
                 </div>
-                {fieldErrors.email && (
-                  <p id="email-error" className="text-xs text-destructive" role="alert">
-                    {fieldErrors.email}
-                  </p>
-                )}
+              )}
+
+              {/* Email */}
+              <div className="space-y-1.5">
+                <Label htmlFor="email" className="text-xs font-medium text-slate-300">
+                  Email Address
+                </Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="name@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-600 focus-visible:ring-blue-500"
+                />
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="login-password">Password</Label>
-                <div className="relative">
-                  <LockKeyhole
-                    className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                  <Input
-                    id="login-password"
-                    type="password"
-                    autoComplete="current-password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (fieldErrors.password)
-                        setFieldErrors((prev) => ({ ...prev, password: undefined }));
-                    }}
-                    aria-invalid={!!fieldErrors.password}
-                    aria-describedby={fieldErrors.password ? "password-error" : undefined}
-                    className="pl-9"
-                    disabled={isPending}
-                  />
+              {/* Password */}
+              <div className="space-y-1.5">
+                <Label htmlFor="password" className="text-xs font-medium text-slate-300">
+                  Password
+                </Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-600 focus-visible:ring-blue-500"
+                />
+              </div>
+
+              {/* Role Selector (Sign Up only) */}
+              {mode === "signup" && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-slate-300">Workspace Role</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRole("USER")}
+                      className={`p-2 rounded-lg border text-xs text-left transition-all ${
+                        role === "USER" 
+                          ? "border-blue-500 bg-blue-500/10 text-white font-semibold" 
+                          : "border-slate-800 bg-slate-950 text-slate-400"
+                      }`}
+                    >
+                      <div className="font-medium">Operator (User)</div>
+                      <div className="text-[10px] text-slate-500">Requisitions & Tracking</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRole("ADMIN")}
+                      className={`p-2 rounded-lg border text-xs text-left transition-all ${
+                        role === "ADMIN" 
+                          ? "border-blue-500 bg-blue-500/10 text-white font-semibold" 
+                          : "border-slate-800 bg-slate-950 text-slate-400"
+                      }`}
+                    >
+                      <div className="font-medium">Administrator</div>
+                      <div className="text-[10px] text-slate-500">Approvals & Payments</div>
+                    </button>
+                  </div>
                 </div>
-                {fieldErrors.password && (
-                  <p id="password-error" className="text-xs text-destructive" role="alert">
-                    {fieldErrors.password}
-                  </p>
-                )}
-              </div>
+              )}
+            </CardContent>
 
-              <Button
-                type="submit"
-                size="lg"
-                className="mt-1 w-full"
-                disabled={isPending}
-                aria-busy={isPending}
+            <CardFooter className="pt-2 flex flex-col gap-3">
+              <Button 
+                type="submit" 
+                disabled={isLoading}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold h-10 shadow-lg shadow-blue-600/20"
               >
-                {isPending ? (
+                {isLoading ? (
                   <>
-                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                    <span>Signing in…</span>
+                    <Loader2 className="size-4 mr-2 animate-spin" />
+                    {mode === "signup" ? "Creating account..." : "Signing in..."}
                   </>
                 ) : (
                   <>
-                    <span>Sign in</span>
-                    <ArrowRight className="size-4" aria-hidden="true" />
+                    {mode === "signup" ? "Complete Registration" : "Sign In to Dashboard"}
+                    <ArrowRight className="size-4 ml-1.5" />
                   </>
                 )}
               </Button>
-            </form>
-          </CardContent>
+
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode(mode === "login" ? "signup" : "login");
+                    setErrorMsg(null);
+                  }}
+                  className="text-xs text-slate-400 hover:text-blue-400 transition-colors"
+                >
+                  {mode === "login" ? (
+                    <>Don&apos;t have an account? <span className="text-blue-400 font-semibold underline">Sign up</span></>
+                  ) : (
+                    <>Already registered? <span className="text-blue-400 font-semibold underline">Sign in</span></>
+                  )}
+                </button>
+              </div>
+            </CardFooter>
+          </form>
         </Card>
 
-        <p className="mt-5 text-center text-xs text-muted-foreground">
-          Demo account:{" "}
-          <span className="font-medium text-foreground/70">gokul@supplychain.dev</span>
-          {" / "}
-          <span className="font-medium text-foreground/70">pass1234</span>
-        </p>
-      </motion.div>
+        {/* Demo Footer Note */}
+        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-3 text-center">
+          <p className="text-[11px] text-slate-400 flex items-center justify-center gap-1.5">
+            <Sparkles className="size-3 text-blue-400" />
+            <span>Database Authentication: Register any new user or sign in with existing credentials.</span>
+          </p>
+        </div>
+
+      </div>
     </div>
   );
 }
+
+export default LoginPage;
