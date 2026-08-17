@@ -6,6 +6,7 @@ export type PurchaseRequestStatus = "DRAFT" | "VALIDATED" | "APPROVED" | "REJECT
 
 export interface ExtractedRequisition {
   item: string;
+  item_description?: string;
   quantity: number;
   delivery_location: string;
   required_date: string; // YYYY-MM-DD
@@ -17,10 +18,14 @@ export interface ExtractionResultResponse {
   extracted: ExtractedRequisition | null;
   is_valid: boolean;
   validation_errors: Record<string, string> | null;
+  confidence?: Record<string, number>;
+  missing_fields?: string[];
+  warnings?: string[];
 }
 
 export interface CreatePurchaseRequestRequest {
-  item: string;
+  item?: string;
+  item_description?: string;
   quantity: number;
   delivery_location: string;
   required_date: string; // YYYY-MM-DD

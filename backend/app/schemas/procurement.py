@@ -23,11 +23,18 @@ class RequisitionChatRequest(BaseModel):
 
 
 class ExtractedRequisition(BaseModel):
-    item: str = Field(..., min_length=2)
+    item: str = Field(..., min_length=1)
+    item_description: Optional[str] = None
     quantity: int = Field(..., gt=0, le=100000)
     delivery_location: str = Field(..., min_length=1)
     required_date: date
     priority: Priority = Priority.NORMAL
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.item_description and self.item:
+            self.item_description = self.item
+        elif self.item_description and not self.item:
+            self.item = self.item_description
 
 
 class ExtractionResultResponse(BaseModel):
@@ -35,15 +42,25 @@ class ExtractionResultResponse(BaseModel):
     extracted: Optional[ExtractedRequisition] = None
     is_valid: bool = False
     validation_errors: Optional[Dict[str, Any]] = None
+    confidence: Optional[Dict[str, float]] = None
+    missing_fields: Optional[List[str]] = Field(default_factory=list)
+    warnings: Optional[List[str]] = Field(default_factory=list)
 
 
 class CreatePurchaseRequestRequest(BaseModel):
-    item: str = Field(..., min_length=2)
+    item: Optional[str] = None
+    item_description: Optional[str] = None
     quantity: int = Field(..., gt=0, le=100000)
     delivery_location: str = Field(..., min_length=1)
     required_date: date
     priority: Priority = Priority.NORMAL
     raw_message: Optional[str] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.item and self.item_description:
+            self.item = self.item_description
+        elif not self.item_description and self.item:
+            self.item_description = self.item
 
 
 class ProductResponse(BaseModel):

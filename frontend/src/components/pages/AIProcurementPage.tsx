@@ -21,9 +21,9 @@ type Message = {
 };
 
 const SUGGESTIONS = [
-  "I need 100 laptops for Bangalore warehouse by August 20.",
-  "Urgently procure 50 barcode scanners for Chennai by next Friday.",
-  "Need 25 pallets of packaging material at Bengaluru DC next month."
+  "I need 12 mobile phones for Baksa by next Tuesday",
+  "Urgently procure 50 barcode scanners for Chennai by next Friday",
+  "Need 25 pallets of packaging material at Bengaluru DC next month"
 ];
 
 export function AIProcurementPage() {
@@ -41,6 +41,10 @@ export function AIProcurementPage() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [recentRequests, setRecentRequests] = useState<any[]>([]);
 
+  // Request counter to avoid race conditions
+  const requestIdCounter = useRef(0);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     let isMounted = true;
     listPurchaseRequests().then((data) => {
@@ -53,37 +57,63 @@ export function AIProcurementPage() {
     };
   }, [refreshTrigger]);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
   // Auto-scroll to bottom of chat
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isExtracting]);
 
   const handleSend = async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || isExtracting) return;
+    // 1. Capture current input into immutable local variable before clearing input
+    const capturedInput = String(text || "").trim();
+    if (!capturedInput || isExtracting) return;
 
     setInput("");
     setActiveExtraction(null);
 
-    const userMsg: Message = { id: Date.now().toString(), role: "user", content: trimmed };
+    const currentReqId = ++requestIdCounter.current;
+
+    const userMsg: Message = { id: Date.now().toString(), role: "user", content: capturedInput };
     setMessages(prev => [...prev, userMsg]);
     setIsExtracting(true);
 
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[AI Procurement] Request #${currentReqId} submitted:`, {
+        submitted_text: capturedInput,
+        request_id: currentReqId,
+        timestamp: new Date().toISOString()
+      });
+    }
+
     try {
-      const result = await extractRequisition(trimmed);
+      // 2. Send exact captured string to extraction API
+      const result: ExtractionResultResponse = await extractRequisition(capturedInput);
+
+      // 3. Prevent race conditions: ignore if newer request has been triggered
+      if (currentReqId !== requestIdCounter.current) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn(`[AI Procurement] Ignoring stale response for Request #${currentReqId}`);
+        }
+        return;
+      }
+
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[AI Procurement] Response for Request #${currentReqId}:`, result);
+      }
+
+      // 4. Atomically set extraction state
       setActiveExtraction(result);
       
       const assistantMsg: Message = {
         id: Date.now().toString(),
         role: "assistant",
         content: result.is_valid 
-          ? "I extracted the following request. Please review it before creating the purchase request."
-          : "I need a few details corrected before this request can be created."
+          ? `I extracted the details for ${result.extracted?.item || 'your requisition'}. Please review before creating the purchase request.`
+          : "I need a few details reviewed before this request can be created."
       };
       setMessages(prev => [...prev, assistantMsg]);
     } catch (err) {
+      if (currentReqId !== requestIdCounter.current) return;
+
       const errorMsg: Message = {
         id: Date.now().toString(),
         role: "system",
@@ -91,7 +121,9 @@ export function AIProcurementPage() {
       };
       setMessages(prev => [...prev, errorMsg]);
     } finally {
-      setIsExtracting(false);
+      if (currentReqId === requestIdCounter.current) {
+        setIsExtracting(false);
+      }
     }
   };
 
@@ -125,7 +157,7 @@ export function AIProcurementPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:h-[calc(100vh-200px)] lg:min-h-[600px]">
           
           {/* Chat Interface Column */}
-          <div className="flex flex-col rounded-xl border border-border bg-card overflow-hidden shadow-sm lg:h-full">
+          <div className="flex flex-col rounded-xl border border-border bg-card overflow-hidden shadow-xs lg:h-full">
             <div className="bg-muted px-4 py-3 border-b flex items-center gap-2">
               <Bot className="size-5 text-primary" />
               <h2 className="font-semibold">Procurement Assistant</h2>
@@ -139,7 +171,7 @@ export function AIProcurementPage() {
               {isExtracting && (
                 <div className="flex items-center gap-3 text-muted-foreground p-4">
                   <Loader2 className="size-4 animate-spin" />
-                  <span className="text-sm">Extracting details...</span>
+                  <span className="text-sm">Extracting requisition details...</span>
                 </div>
               )}
               <div ref={messagesEndRef} />
@@ -150,8 +182,10 @@ export function AIProcurementPage() {
                 {SUGGESTIONS.map((suggestion, idx) => (
                   <button
                     key={idx}
-                    onClick={() => setInput(suggestion)}
-                    className="text-xs bg-muted hover:bg-primary/10 hover:text-primary transition-colors px-2.5 py-1.5 rounded-full border border-border text-muted-foreground text-left"
+                    type="button"
+                    onClick={() => handleSend(suggestion)}
+                    disabled={isExtracting}
+                    className="text-xs bg-muted hover:bg-primary/10 hover:text-primary transition-colors px-2.5 py-1.5 rounded-full border border-border text-muted-foreground text-left disabled:opacity-50"
                   >
                     &quot;{suggestion}&quot;
                   </button>
@@ -164,7 +198,7 @@ export function AIProcurementPage() {
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Type your request here..."
+                  placeholder="Type your request here (e.g. I need 12 mobile phones for Baksa by next Tuesday)..."
                   className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
