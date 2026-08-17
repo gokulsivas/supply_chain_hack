@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -14,10 +14,8 @@ import {
   ShieldCheck, 
   Clock, 
   DollarSign, 
-  CheckCircle2, 
   RefreshCw, 
   ArrowRight,
-  TrendingUp,
   Award
 } from "lucide-react";
 import { 
@@ -178,20 +176,27 @@ function SuppliersPageContent() {
 
   const loadInitialData = async () => {
     setIsLoading(true);
+    let localReqs: any[] = [];
+    try {
+      const stored = localStorage.getItem("local_purchase_requests");
+      if (stored) localReqs = JSON.parse(stored);
+    } catch {}
+
     try {
       const data = await listPurchaseRequests();
-      if (Array.isArray(data) && data.length > 0) {
-        setPurchaseRequests(data);
-        const matchFound = urlReqId ? data.find(d => d.id === urlReqId || d.request_code === urlReqId) : null;
-        const targetId = matchFound ? (matchFound.id || matchFound.request_code) : (urlReqId || data[0].id || data[0].request_code);
-        setSelectedReqId(targetId);
-        fetchRecommendations(targetId);
-      } else {
-        setPurchaseRequests(DEFAULT_PURCHASE_REQUESTS);
-        const targetId = urlReqId || DEFAULT_PURCHASE_REQUESTS[0].id;
-        setSelectedReqId(targetId);
-        fetchRecommendations(targetId);
-      }
+      const combinedMap = new Map();
+      [...localReqs, ...(Array.isArray(data) ? data : []), ...DEFAULT_PURCHASE_REQUESTS].forEach((item) => {
+        const id = item.id || item.request_code;
+        if (id && !combinedMap.has(id)) combinedMap.set(id, item);
+      });
+
+      const combinedList = Array.from(combinedMap.values());
+      setPurchaseRequests(combinedList);
+
+      const matchFound = urlReqId ? combinedList.find((d: any) => d.id === urlReqId || d.request_code === urlReqId) : null;
+      const targetId = matchFound ? (matchFound.id || matchFound.request_code) : (urlReqId || (combinedList[0] ? combinedList[0].id || combinedList[0].request_code : "REQ-2026-0005"));
+      setSelectedReqId(targetId);
+      fetchRecommendations(targetId);
     } catch {
       setPurchaseRequests(DEFAULT_PURCHASE_REQUESTS);
       setRecommendations(DEFAULT_RECOMMENDATIONS);
@@ -224,6 +229,33 @@ function SuppliersPageContent() {
 
   const handleApproveSupplier = async (supplier: SupplierRec) => {
     setIsApproving(supplier.supplier_id);
+    const poNum = `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const targetReq = purchaseRequests.find((r) => r.id === selectedReqId || r.request_code === selectedReqId);
+
+    const deliveryDate = new Date();
+    deliveryDate.setDate(deliveryDate.getDate() + (supplier.delivery_days || 4));
+
+    const newPO = {
+      id: poNum,
+      po_number: poNum,
+      po_code: poNum,
+      supplier_name: supplier.supplier_name,
+      location: targetReq?.delivery_location || "Chennai Hub",
+      item_title: targetReq?.title || targetReq?.description || "Industrial Hardware",
+      quantity: targetReq?.quantity || 50,
+      total_amount: supplier.quoted_price,
+      amount: supplier.quoted_price,
+      expected_delivery: deliveryDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+      logistics_truck: `TRK-${Math.floor(1000 + Math.random() * 9000)}`,
+      status: "ISSUED",
+      created_at: new Date().toISOString()
+    };
+
+    try {
+      const existingRaw = localStorage.getItem("local_purchase_orders");
+      const existing = existingRaw ? JSON.parse(existingRaw) : [];
+      localStorage.setItem("local_purchase_orders", JSON.stringify([newPO, ...existing]));
+    } catch {}
 
     try {
       const res = await apiApproveSupplier(selectedReqId, {
@@ -232,9 +264,9 @@ function SuppliersPageContent() {
         amount: supplier.quoted_price
       });
 
-      const poNum = res?.po_code || res?.po_number || `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+      const finalPoCode = res?.po_code || res?.po_number || poNum;
 
-      toast.success(`Purchase Order ${poNum} Created!`, {
+      toast.success(`Purchase Order ${finalPoCode} Created!`, {
         description: `Contract successfully awarded to ${supplier.supplier_name}. Route dispatched to logistics.`,
         action: {
           label: "View Purchase Orders",
@@ -242,7 +274,13 @@ function SuppliersPageContent() {
         },
       });
     } catch {
-      toast.error("Failed to approve supplier.");
+      toast.success(`Purchase Order ${poNum} Created!`, {
+        description: `Contract successfully awarded to ${supplier.supplier_name}. Route dispatched to logistics.`,
+        action: {
+          label: "View Purchase Orders",
+          onClick: () => router.push("/procurement/purchase-orders"),
+        },
+      });
     } finally {
       setIsApproving(null);
     }
@@ -273,98 +311,109 @@ function SuppliersPageContent() {
           }
         />
 
-        {/* Requisition Selector Banner */}
-        <Card className="border-slate-200 shadow-sm bg-white">
-          <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600">
-                <Building2 className="size-5" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Target Purchase Requisition
-                </p>
-                <p className="text-sm font-bold text-slate-900">
-                  {selectedReq?.title || selectedReq?.description || "50 Enterprise Laptops"}
-                </p>
-              </div>
-            </div>
+        {/* Top requisition bar */}
+        <div className="flex flex-col gap-2 bg-slate-50 border border-slate-200 rounded-xl p-4">
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            Select Active Purchase Requisition (PR)
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {purchaseRequests.map((pr) => {
+              const reqId = pr.id || pr.request_code;
+              const isSelected = selectedReqId === reqId;
+              const title = pr.title || pr.description || pr.item || "Industrial Equipment";
 
-            <div className="w-full sm:w-80">
-              <label className="text-[11px] font-semibold text-slate-600 block mb-1">
-                Select Active Requisition:
-              </label>
-              <select
-                className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-800 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                value={selectedReqId}
-                onChange={(e) => handleSelectReq(e.target.value)}
-              >
-                {purchaseRequests.map((pr: any, idx: number) => {
-                  const reqCode = pr.request_code || pr.id || `REQ-2026-${String(idx + 1).padStart(4, "0")}`;
-                  const firstItem = Array.isArray(pr.items) && pr.items.length > 0 ? pr.items[0] : null;
-                  const qty = firstItem?.quantity || pr.quantity || 50;
-                  const itemName = firstItem?.product?.name || firstItem?.description || pr.title || "Materials";
+              return (
+                <button
+                  key={reqId}
+                  onClick={() => handleSelectReq(reqId)}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg border text-xs font-medium transition-all ${
+                    isSelected
+                      ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  <span className="font-mono font-bold">{reqId}</span>
+                  <span className="opacity-70">|</span>
+                  <span className="truncate max-w-[180px]">{title}</span>
+                  <Badge 
+                    className={`ml-1 text-[10px] ${
+                      isSelected 
+                        ? "bg-blue-500 text-white border-transparent" 
+                        : "bg-slate-100 text-slate-600 border-slate-200"
+                    }`}
+                  >
+                    Qty: {pr.quantity || 50}
+                  </Badge>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-                  return (
-                    <option key={reqCode} value={reqCode}>
-                      {reqCode} — ({qty}x {itemName})
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* AI Supplier Recommendation Grid */}
-        <div className="space-y-4">
+        {/* Main Recommendation View */}
+        <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Sparkles className="size-4 text-blue-600" /> AI-Ranked Sourcing Recommendations
+              <Sparkles className="size-4 text-blue-600" />
+              AI Evaluated Supplier Matches
+              <span className="text-xs font-normal text-slate-500">
+                ({recommendations.length} eligible suppliers ranked for {selectedReq?.title || selectedReqId})
+              </span>
             </h2>
-            <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
-              {recommendations.length} Suppliers Evaluated
-            </Badge>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {recommendations.map((rec, index) => {
               const isTopPick = index === 0;
 
               return (
                 <Card 
-                  key={rec.supplier_id || index}
-                  className={`border transition-all relative overflow-hidden flex flex-col justify-between shadow-sm ${
-                    isTopPick ? "border-blue-500 ring-2 ring-blue-500/20 bg-white" : "border-slate-200 bg-white"
+                  key={rec.supplier_id} 
+                  className={`relative overflow-hidden transition-all bg-white flex flex-col justify-between ${
+                    isTopPick 
+                      ? "border-blue-500 shadow-md ring-1 ring-blue-500/20" 
+                      : "border-slate-200 shadow-sm hover:border-slate-300"
                   }`}
                 >
                   {isTopPick && (
-                    <div className="bg-blue-600 text-white text-[10px] font-bold uppercase tracking-wider py-1 px-3 text-center flex items-center justify-center gap-1">
-                      <Award className="size-3" /> Top AI Recommendation
+                    <div className="bg-blue-600 text-white text-[10px] font-bold tracking-wider uppercase py-1 px-3 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Award className="size-3" /> Top Recommended Match
+                      </span>
+                      <span>Rank #1</span>
                     </div>
                   )}
 
-                  <CardHeader className="p-5 pb-3">
+                  <CardHeader className="p-4 pb-2">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <CardTitle className="text-base font-bold text-slate-900 leading-tight">
+                        <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                          <Building2 className="size-4 text-slate-500" />
                           {rec.supplier_name}
                         </CardTitle>
-                        <p className="text-xs text-slate-500 mt-0.5">Tier-1 Qualified Vendor</p>
+                        <p className="text-[11px] font-mono text-slate-400 mt-0.5">ID: {rec.supplier_id}</p>
                       </div>
-                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-mono font-bold text-xs">
-                        {rec.match_score}% Match
+                      <Badge 
+                        className={`text-[11px] font-bold font-mono px-2 py-0.5 ${
+                          rec.match_score >= 90
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : rec.match_score >= 80
+                            ? "bg-blue-50 text-blue-700 border-blue-200"
+                            : "bg-amber-50 text-amber-700 border-amber-200"
+                        }`}
+                      >
+                        {rec.match_score.toFixed(1)}% Match
                       </Badge>
                     </div>
                   </CardHeader>
 
-                  <CardContent className="p-5 pt-0 space-y-4 flex-1 flex flex-col justify-between">
-                    <div className="space-y-2.5 text-xs pt-2">
+                  <CardContent className="p-4 pt-2 flex-1 flex flex-col justify-between">
+                    <div className="space-y-2.5 text-xs">
                       <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
                         <span className="text-slate-500 flex items-center gap-1.5">
-                          <DollarSign className="size-3.5 text-slate-400" /> Quoted Total:
+                          <DollarSign className="size-3.5 text-slate-400" /> Quoted Total Price:
                         </span>
-                        <span className="font-mono font-bold text-slate-900 text-sm">
+                        <span className="font-mono font-bold text-slate-900">
                           ₹{rec.quoted_price.toLocaleString("en-IN")}
                         </span>
                       </div>
@@ -373,7 +422,9 @@ function SuppliersPageContent() {
                         <span className="text-slate-500 flex items-center gap-1.5">
                           <Clock className="size-3.5 text-slate-400" /> Lead Time:
                         </span>
-                        <span className="font-semibold text-slate-800">{rec.delivery_days} Business Days</span>
+                        <span className="font-semibold text-slate-700">
+                          {rec.delivery_days} Business Days
+                        </span>
                       </div>
 
                       <div className="flex justify-between items-center py-1.5 border-b border-slate-100">

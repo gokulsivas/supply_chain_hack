@@ -216,3 +216,5 @@ export function AIProcurementPage() {
     </AppShell>
   );
 }
+
+export default AIProcurementPage;

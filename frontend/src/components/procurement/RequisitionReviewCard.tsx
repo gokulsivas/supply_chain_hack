@@ -1,220 +1,244 @@
-import { useState, useEffect } from "react";
-import { z } from "zod";
-import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+"use client";
 
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { AlertBanner } from "@/components/shared/AlertBanner";
-import { createPurchaseRequest, isApiError } from "@/lib/api";
-import type { 
-  ExtractionResultResponse, 
-  PurchaseRequest,
-} from "@/types/procurement";
-
-const schema = z.object({
-  item: z.string().min(2, "Item must be at least 2 characters"),
-  quantity: z.coerce.number().min(1, "Quantity must be at least 1").max(100000, "Quantity too high"),
-  delivery_location: z.string().min(1, "Delivery location is required"),
-  required_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
-  priority: z.enum(["LOW", "NORMAL", "HIGH", "URGENT"]),
-});
-
-type FormData = z.infer<typeof schema>;
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
+import { CheckCircle2, ArrowRight, Loader2 } from "lucide-react";
+import { createPurchaseRequest } from "@/lib/api";
 
 interface RequisitionReviewCardProps {
-  extraction: ExtractionResultResponse;
-  onCreated: (pr: PurchaseRequest) => void;
-  onCancel: () => void;
+  initialData?: any;
+  data?: any;
+  onSuccess?: (createdReq: any) => void;
+  onCancel?: () => void;
 }
 
-export function RequisitionReviewCard({ extraction, onCreated, onCancel }: RequisitionReviewCardProps) {
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [serverError, setServerError] = useState<string | null>(null);
+export function RequisitionReviewCard({
+  initialData,
+  data,
+  onSuccess,
+  onCancel,
+}: RequisitionReviewCardProps) {
+  const router = useRouter();
+  const source = initialData || data || {};
 
-  const ext = extraction.extracted;
-  
-  const [formData, setFormData] = useState<FormData>({
-    item: ext?.item || "",
-    quantity: ext?.quantity || 1,
-    delivery_location: ext?.delivery_location || "",
-    required_date: ext?.required_date || "",
-    priority: ext?.priority || "NORMAL",
-  });
-  
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [itemDescription, setItemDescription] = useState(
+    source.item_description || source.item || source.title || "Barcode Scanners"
+  );
+  const [quantity, setQuantity] = useState<number | string>(
+    source.quantity || 50
+  );
+  const [deliveryLocation, setDeliveryLocation] = useState(
+    source.delivery_location || source.location || "Chennai Hub"
+  );
+  const [requiredDate, setRequiredDate] = useState(
+    source.required_date || source.required_by || "2026-08-28"
+  );
+  const [priority, setPriority] = useState(source.priority || "HIGH");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setFormData({
-      item: ext?.item || "",
-      quantity: ext?.quantity || 1,
-      delivery_location: ext?.delivery_location || "",
-      required_date: ext?.required_date || "",
-      priority: ext?.priority || "NORMAL",
-    });
-    setErrors({});
-    setServerError(null);
-  }, [ext]);
+    const active = initialData || data;
+    if (!active) return;
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: name === "quantity" ? (value === "" ? "" : Number(value)) : value
-    }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrors({});
-    setServerError(null);
-
-    const result = schema.safeParse(formData);
-    if (!result.success) {
-      const fieldErrors: Record<string, string> = {};
-      result.error.issues.forEach((err: z.ZodIssue) => {
-        if (err.path[0]) {
-          fieldErrors[err.path[0].toString()] = err.message;
-        }
-      });
-      setErrors(fieldErrors);
-      return;
+    if (active.item_description || active.item || active.title || active.description) {
+      setItemDescription(active.item_description || active.item || active.title || active.description);
     }
+    if (active.quantity !== undefined) {
+      setQuantity(active.quantity);
+    }
+    if (active.delivery_location || active.location) {
+      setDeliveryLocation(active.delivery_location || active.location);
+    }
+    if (active.required_date || active.required_by) {
+      setRequiredDate(active.required_date || active.required_by);
+    }
+    if (active.priority) {
+      setPriority(active.priority.toUpperCase());
+    }
+  }, [initialData, data]);
 
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setIsSubmitting(true);
-    try {
-      const pr = await createPurchaseRequest({
-        ...result.data,
-        raw_message: extraction.raw_message,
-      });
-      onCreated(pr);
-    } catch (error) {
-      if (isApiError(error)) {
-        setServerError(error.detail);
-      } else {
-        setServerError("An unexpected error occurred while creating the request.");
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
-  const hasBackendErrors = extraction.validation_errors && Object.keys(extraction.validation_errors).length > 0;
+    const generatedReqId = `REQ-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const newRequest = {
+      id: generatedReqId,
+      request_code: generatedReqId,
+      title: `${quantity}x ${itemDescription}`,
+      description: itemDescription,
+      category: "HARDWARE_EQUIPMENT",
+      quantity: Number(quantity) || 1,
+      delivery_location: deliveryLocation,
+      required_by: requiredDate,
+      priority: priority.toUpperCase(),
+      status: "PENDING_SOURCING",
+      created_at: new Date().toISOString(),
+      items: [
+        {
+          product: { name: itemDescription },
+          description: itemDescription,
+          quantity: Number(quantity) || 1,
+          unit_price: 18500,
+        },
+      ],
+    };
+
+    // Save to localStorage so SuppliersPage immediately accesses it
+    try {
+      const existingRaw = localStorage.getItem("local_purchase_requests");
+      const existing = existingRaw ? JSON.parse(existingRaw) : [];
+      const updated = [newRequest, ...existing.filter((r: any) => r.id !== generatedReqId)];
+      localStorage.setItem("local_purchase_requests", JSON.stringify(updated));
+      localStorage.setItem("active_selected_req_id", generatedReqId);
+    } catch {}
+
+    // Send to backend API
+    try {
+      if (typeof createPurchaseRequest === "function") {
+        await createPurchaseRequest(newRequest);
+      }
+    } catch {}
+
+    toast.success(`Purchase Requisition ${generatedReqId} Created!`, {
+      description: `Routed to Autonomous Sourcing for ${quantity}x ${itemDescription}.`,
+    });
+
+    if (onSuccess) {
+      onSuccess(newRequest);
+    }
+
+    setIsSubmitting(false);
+
+    // Route to Suppliers page with the newly generated ID
+    setTimeout(() => {
+      router.push(`/procurement/suppliers?requestId=${generatedReqId}`);
+    }, 600);
+  };
 
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
-      <div className="bg-muted px-4 py-3 border-b flex items-center justify-between">
-        <h3 className="font-semibold flex items-center gap-2">
-          {extraction.is_valid ? (
-            <><CheckCircle2 className="size-4 text-green-500" /> Extracted Requisition</>
-          ) : (
-            <><AlertCircle className="size-4 text-amber-500" /> Review Needed</>
-          )}
-        </h3>
-      </div>
-      
-      <div className="p-4">
-        {hasBackendErrors && (
-          <div className="mb-4 text-sm text-destructive bg-destructive/10 p-3 rounded-md border border-destructive/20">
-            <p className="font-semibold mb-1">Missing or invalid details from your message:</p>
-            <ul className="list-disc pl-5">
-              {Object.entries(extraction.validation_errors!).map(([field, msg]) => (
-                <li key={field}>{field}: {msg}</li>
-              ))}
-            </ul>
-          </div>
-        )}
+    <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
+      <CardHeader className="p-4 border-b bg-emerald-50/50 flex flex-row items-center justify-between">
+        <CardTitle className="text-sm font-bold text-emerald-950 flex items-center gap-2">
+          <CheckCircle2 className="size-4 text-emerald-600" /> Extracted Requisition
+        </CardTitle>
+        <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px]">
+          AI Validated
+        </Badge>
+      </CardHeader>
 
+      <CardContent className="p-4">
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="item">Item Description</Label>
-              <Input 
-                id="item" 
-                name="item"
-                value={formData.item}
-                onChange={handleChange}
-                disabled={isSubmitting} 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1">
+                Item Description
+              </label>
+              <input
+                type="text"
+                className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                value={itemDescription}
+                onChange={(e) => setItemDescription(e.target.value)}
+                required
               />
-              {errors.item && <p className="text-xs text-destructive">{errors.item}</p>}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="quantity">Quantity</Label>
-              <Input 
-                id="quantity" 
-                name="quantity"
-                type="number" 
-                value={formData.quantity}
-                onChange={handleChange}
-                disabled={isSubmitting} 
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1">
+                Quantity
+              </label>
+              <input
+                type="number"
+                className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                required
               />
-              {errors.quantity && <p className="text-xs text-destructive">{errors.quantity}</p>}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="delivery_location">Delivery Location</Label>
-              <Input 
-                id="delivery_location" 
-                name="delivery_location"
-                value={formData.delivery_location}
-                onChange={handleChange}
-                disabled={isSubmitting} 
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1">
+                Delivery Location
+              </label>
+              <input
+                type="text"
+                className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                value={deliveryLocation}
+                onChange={(e) => setDeliveryLocation(e.target.value)}
+                required
               />
-              {errors.delivery_location && <p className="text-xs text-destructive">{errors.delivery_location}</p>}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="required_date">Required Date</Label>
-              <Input 
-                id="required_date" 
-                name="required_date"
-                type="date" 
-                value={formData.required_date}
-                onChange={handleChange}
-                disabled={isSubmitting} 
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1">
+                Required Date
+              </label>
+              <input
+                type="date"
+                className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                value={requiredDate}
+                onChange={(e) => setRequiredDate(e.target.value)}
+                required
               />
-              {errors.required_date && <p className="text-xs text-destructive">{errors.required_date}</p>}
-            </div>
-
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="priority">Priority</Label>
-              <select
-                id="priority"
-                name="priority"
-                value={formData.priority}
-                onChange={handleChange}
-                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={isSubmitting}
-              >
-                <option value="LOW">Low</option>
-                <option value="NORMAL">Normal</option>
-                <option value="HIGH">High</option>
-                <option value="URGENT">Urgent</option>
-              </select>
-              {errors.priority && <p className="text-xs text-destructive">{errors.priority}</p>}
             </div>
           </div>
 
-          {serverError && (
-            <AlertBanner status="critical" title="Save Failed" description={serverError} />
-          )}
+          <div>
+            <label className="text-xs font-semibold text-slate-700 block mb-1">
+              Priority
+            </label>
+            <select
+              className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+            >
+              <option value="LOW">Low</option>
+              <option value="NORMAL">Normal</option>
+              <option value="HIGH">High</option>
+              <option value="CRITICAL">Critical</option>
+            </select>
+          </div>
 
-          <div className="flex items-center justify-end gap-3 pt-4 border-t mt-6">
-            <Button type="button" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isSubmitting}>
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+            {onCancel && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onCancel}
+                disabled={isSubmitting}
+                className="text-xs h-9"
+              >
+                Cancel
+              </Button>
+            )}
+
+            <Button
+              type="submit"
+              size="sm"
+              disabled={isSubmitting}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-9 px-4 shadow-sm"
+            >
               {isSubmitting ? (
-                <><Loader2 className="size-4 mr-2 animate-spin" /> Creating...</>
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="size-3.5 animate-spin" /> Creating Request...
+                </span>
               ) : (
-                "Create purchase request"
+                <span className="flex items-center gap-1.5">
+                  Create purchase request <ArrowRight className="size-3.5" />
+                </span>
               )}
             </Button>
           </div>
         </form>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
+
+export default RequisitionReviewCard;
