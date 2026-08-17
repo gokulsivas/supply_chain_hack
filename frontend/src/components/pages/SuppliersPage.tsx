@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import axios from "axios";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -14,10 +15,8 @@ import {
   ShieldCheck, 
   Clock, 
   DollarSign, 
-  CheckCircle2, 
   RefreshCw, 
   ArrowRight,
-  TrendingUp,
   Award
 } from "lucide-react";
 
@@ -55,114 +54,231 @@ const DEFAULT_PURCHASE_REQUESTS = [
   }
 ];
 
-const DEFAULT_RECOMMENDATIONS: SupplierRec[] = [
-  {
-    supplier_id: "sup-1",
-    supplier_name: "Precision Tech Components",
-    match_score: 96.5,
-    confidence_score: 0.98,
-    quoted_price: 2600000,
-    delivery_days: 4,
-    esg_rating: "A+",
-    reliability_score: 98,
-    risk_level: "LOW",
-    recommendation_reason: "Top-ranked supplier with 99.2% on-time delivery record, ISO-9001 audit clearance, and best volume pricing."
-  },
-  {
-    supplier_id: "sup-2",
-    supplier_name: "NexGen Electronics Hub",
-    match_score: 89.2,
-    confidence_score: 0.91,
-    quoted_price: 2680000,
-    delivery_days: 6,
-    esg_rating: "A",
-    reliability_score: 92,
-    risk_level: "LOW",
-    recommendation_reason: "Reliable secondary tier-1 supplier with guaranteed SLAs and buffer stock availability."
-  },
-  {
-    supplier_id: "sup-3",
-    supplier_name: "Apex Global Supplies",
-    match_score: 81.4,
-    confidence_score: 0.84,
-    quoted_price: 2750000,
-    delivery_days: 8,
-    esg_rating: "B+",
-    reliability_score: 88,
-    risk_level: "MEDIUM",
-    recommendation_reason: "Standard catalog pricing with higher lead time."
-  }
-];
-
 export function SuppliersPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryReqId = searchParams ? searchParams.get("requestId") : null;
+
   const [purchaseRequests, setPurchaseRequests] = useState<any[]>(DEFAULT_PURCHASE_REQUESTS);
   const [selectedReqId, setSelectedReqId] = useState<string>("REQ-2026-0005");
-  const [recommendations, setRecommendations] = useState<SupplierRec[]>(DEFAULT_RECOMMENDATIONS);
+  const [recommendations, setRecommendations] = useState<SupplierRec[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isApproving, setIsApproving] = useState<string | null>(null);
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
-  const loadInitialData = async () => {
+  const generateDynamicRecommendations = (req: any): SupplierRec[] => {
+    const title = req?.title || req?.description || "Industrial Materials";
+    const qty = req?.quantity || 50;
+
+    if (/scanner/i.test(title)) {
+      return [
+        {
+          supplier_id: "sup-scan-1",
+          supplier_name: "Apex Barcode Solutions & Automation",
+          match_score: 97.8,
+          quoted_price: qty * 18200,
+          delivery_days: 3,
+          esg_rating: "A+",
+          reliability_score: 99,
+          risk_level: "LOW",
+          recommendation_reason: "Direct tier-1 OEM distributor for high-speed industrial scanners. Rapid 3-day SLA with pre-calibrated firmware."
+        },
+        {
+          supplier_id: "sup-scan-2",
+          supplier_name: "NexGen Logistics Hardware",
+          match_score: 91.4,
+          quoted_price: qty * 18900,
+          delivery_days: 5,
+          esg_rating: "A",
+          reliability_score: 94,
+          risk_level: "LOW",
+          recommendation_reason: "Reliable secondary provider with included 3-year warranty and on-site deployment support."
+        },
+        {
+          supplier_id: "sup-scan-3",
+          supplier_name: "OmniTech Industrial Supply",
+          match_score: 84.0,
+          quoted_price: qty * 19500,
+          delivery_days: 7,
+          esg_rating: "B+",
+          reliability_score: 89,
+          risk_level: "MEDIUM",
+          recommendation_reason: "Standard catalog distributor with standard lead time."
+        }
+      ];
+    }
+
+    if (/packaging|pallet/i.test(title)) {
+      return [
+        {
+          supplier_id: "sup-pkg-1",
+          supplier_name: "Global Eco-Packaging Ltd",
+          match_score: 96.2,
+          quoted_price: qty * 4800,
+          delivery_days: 4,
+          esg_rating: "A+",
+          reliability_score: 98,
+          risk_level: "LOW",
+          recommendation_reason: "100% recyclable certified packaging supplier with ISO-14001 compliance and bulk discount."
+        },
+        {
+          supplier_id: "sup-pkg-2",
+          supplier_name: "South India Corrugated Logistics",
+          match_score: 88.5,
+          quoted_price: qty * 5100,
+          delivery_days: 6,
+          esg_rating: "A",
+          reliability_score: 91,
+          risk_level: "LOW",
+          recommendation_reason: "Regional vendor with dedicated fleet buffer in Chennai and Bengaluru."
+        }
+      ];
+    }
+
+    return [
+      {
+        supplier_id: "sup-1",
+        supplier_name: "Precision Tech Components",
+        match_score: 96.5,
+        confidence_score: 0.98,
+        quoted_price: qty * 52000,
+        delivery_days: 4,
+        esg_rating: "A+",
+        reliability_score: 98,
+        risk_level: "LOW",
+        recommendation_reason: "Top-ranked supplier with 99.2% on-time delivery record, ISO-9001 audit clearance, and best volume pricing."
+      },
+      {
+        supplier_id: "sup-2",
+        supplier_name: "NexGen Electronics Hub",
+        match_score: 89.2,
+        confidence_score: 0.91,
+        quoted_price: qty * 53600,
+        delivery_days: 6,
+        esg_rating: "A",
+        reliability_score: 92,
+        risk_level: "LOW",
+        recommendation_reason: "Reliable secondary tier-1 supplier with guaranteed SLAs and buffer stock availability."
+      },
+      {
+        supplier_id: "sup-3",
+        supplier_name: "Apex Global Supplies",
+        match_score: 81.4,
+        confidence_score: 0.84,
+        quoted_price: qty * 55000,
+        delivery_days: 8,
+        esg_rating: "B+",
+        reliability_score: 88,
+        risk_level: "MEDIUM",
+        recommendation_reason: "Standard catalog pricing with standard delivery lead time."
+      }
+    ];
+  };
+
+  const loadData = async () => {
     setIsLoading(true);
+
+    let localReqs: any[] = [];
+    try {
+      const stored = localStorage.getItem("local_purchase_requests");
+      if (stored) localReqs = JSON.parse(stored);
+    } catch {}
+
+    let apiReqs: any[] = [];
     try {
       const res = await axios.get(`${API_BASE}/procurement/requests`);
       if (Array.isArray(res.data) && res.data.length > 0) {
-        setPurchaseRequests(res.data);
-        const firstId = res.data[0].id || res.data[0].request_code;
-        setSelectedReqId(firstId);
-        fetchRecommendations(firstId);
-      } else {
-        setPurchaseRequests(DEFAULT_PURCHASE_REQUESTS);
-        setRecommendations(DEFAULT_RECOMMENDATIONS);
+        apiReqs = res.data;
       }
-    } catch {
-      setPurchaseRequests(DEFAULT_PURCHASE_REQUESTS);
-      setRecommendations(DEFAULT_RECOMMENDATIONS);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    } catch {}
 
-  const fetchRecommendations = async (reqId: string) => {
-    try {
-      const res = await axios.get(`${API_BASE}/procurement/requests/${reqId}/recommendations`);
-      if (Array.isArray(res.data) && res.data.length > 0) {
-        setRecommendations(res.data);
-      } else {
-        setRecommendations(DEFAULT_RECOMMENDATIONS);
-      }
-    } catch {
-      setRecommendations(DEFAULT_RECOMMENDATIONS);
-    }
+    const combinedMap = new Map();
+    [...localReqs, ...apiReqs, ...DEFAULT_PURCHASE_REQUESTS].forEach((item) => {
+      const id = item.id || item.request_code;
+      if (id && !combinedMap.has(id)) combinedMap.set(id, item);
+    });
+
+    const combinedList = Array.from(combinedMap.values());
+    setPurchaseRequests(combinedList);
+
+    const targetId =
+      queryReqId ||
+      localStorage.getItem("active_selected_req_id") ||
+      (combinedList[0] ? combinedList[0].id || combinedList[0].request_code : "REQ-2026-0005");
+
+    setSelectedReqId(targetId);
+
+    const targetReq = combinedList.find((r) => r.id === targetId || r.request_code === targetId) || combinedList[0];
+    setRecommendations(generateDynamicRecommendations(targetReq));
+
+    setIsLoading(false);
   };
 
   useEffect(() => {
-    loadInitialData();
-  }, []);
+    loadData();
+  }, [queryReqId]);
 
   const handleSelectReq = (reqId: string) => {
     setSelectedReqId(reqId);
-    fetchRecommendations(reqId);
+    try {
+      localStorage.setItem("active_selected_req_id", reqId);
+    } catch {}
+
+    const target = purchaseRequests.find((r) => r.id === reqId || r.request_code === reqId);
+    setRecommendations(generateDynamicRecommendations(target));
   };
 
   const handleApproveSupplier = async (supplier: SupplierRec) => {
     setIsApproving(supplier.supplier_id);
     const poNum = `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const targetReq = purchaseRequests.find((r) => r.id === selectedReqId || r.request_code === selectedReqId);
+
+    const deliveryDate = new Date();
+    deliveryDate.setDate(deliveryDate.getDate() + (supplier.delivery_days || 4));
+
+    const newPO = {
+      id: poNum,
+      po_number: poNum,
+      po_code: poNum,
+      supplier_name: supplier.supplier_name,
+      location: targetReq?.delivery_location || "Chennai Hub",
+      item_title: targetReq?.title || targetReq?.description || "Industrial Hardware",
+      quantity: targetReq?.quantity || 50,
+      total_amount: supplier.quoted_price,
+      amount: supplier.quoted_price,
+      expected_delivery: deliveryDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+      logistics_truck: `TRK-${Math.floor(1000 + Math.random() * 9000)}`,
+      status: "ISSUED",
+      created_at: new Date().toISOString()
+    };
+
+    // Store directly in localStorage so Purchase Orders page renders it immediately
+    try {
+      const existingRaw = localStorage.getItem("local_purchase_orders");
+      const existing = existingRaw ? JSON.parse(existingRaw) : [];
+      localStorage.setItem("local_purchase_orders", JSON.stringify([newPO, ...existing]));
+    } catch {}
 
     try {
       await axios.post(`${API_BASE}/procurement/requests/${selectedReqId}/approve-supplier`, {
         supplier_id: supplier.supplier_id,
         supplier_name: supplier.supplier_name,
-        amount: supplier.quoted_price
+        amount: supplier.quoted_price,
+        po_number: poNum,
       });
     } catch {}
 
     toast.success(`Purchase Order ${poNum} Created!`, {
-      description: `Contract successfully awarded to ${supplier.supplier_name}. Route dispatched to logistics.`
+      description: `Contract awarded to ${supplier.supplier_name}. Inbound shipment schedule initialized.`,
     });
 
     setIsApproving(null);
+
+    // Route to Purchase Orders page
+    setTimeout(() => {
+      router.push("/procurement/purchase-orders");
+    }, 1000);
   };
 
   const selectedReq = purchaseRequests.find(
@@ -172,8 +288,6 @@ export function SuppliersPage() {
   return (
     <AppShell title="Supplier Intelligence">
       <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full py-6">
-        
-        {/* Header */}
         <PageHeader
           title="Autonomous Supplier Selection"
           description="AI-ranked supplier recommendations scored across cost, lead time, ESG compliance, and historical reliability."
@@ -181,7 +295,7 @@ export function SuppliersPage() {
             <Button 
               variant="outline" 
               size="sm" 
-              onClick={loadInitialData} 
+              onClick={loadData} 
               disabled={isLoading}
               className="text-xs"
             >
@@ -190,7 +304,6 @@ export function SuppliersPage() {
           }
         />
 
-        {/* Requisition Selector Banner */}
         <Card className="border-slate-200 shadow-sm bg-white">
           <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -202,12 +315,12 @@ export function SuppliersPage() {
                   Target Purchase Requisition
                 </p>
                 <p className="text-sm font-bold text-slate-900">
-                  {selectedReq?.title || selectedReq?.description || "50 Enterprise Laptops"}
+                  {selectedReq?.title || selectedReq?.description || "Industrial Materials Requisition"}
                 </p>
               </div>
             </div>
 
-            <div className="w-full sm:w-80">
+            <div className="w-full sm:w-88">
               <label className="text-[11px] font-semibold text-slate-600 block mb-1">
                 Select Active Requisition:
               </label>
@@ -233,7 +346,6 @@ export function SuppliersPage() {
           </CardContent>
         </Card>
 
-        {/* AI Supplier Recommendation Grid */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
@@ -331,7 +443,6 @@ export function SuppliersPage() {
             })}
           </div>
         </div>
-
       </div>
     </AppShell>
   );

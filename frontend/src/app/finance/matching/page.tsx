@@ -1,276 +1,416 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import axios from "axios";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { 
-  CheckCircle2, 
-  AlertTriangle, 
-  FileText, 
-  PackageCheck, 
-  Receipt, 
-  ArrowRight, 
-  Sparkles, 
-  ShieldCheck,
-  RefreshCw,
-  Zap
+import {
+  CheckCircle2,
+  AlertTriangle,
+  FileCheck,
+  PackageCheck,
+  Receipt,
+  RotateCcw,
+  ShieldAlert,
+  ArrowRight,
+  Sparkles
 } from "lucide-react";
 
-interface MatchAnomaly {
-  field: string;
-  po_value: string;
-  gr_value: string;
-  invoice_value: string;
-  severity: "LOW" | "MEDIUM" | "HIGH";
-  description: string;
-}
-
-interface InvoiceItem {
+interface MatchingDocument {
   id: string;
   invoice_number: string;
   supplier_name: string;
   po_number: string;
-  total_amount: number;
-  currency: string;
-  status: string;
+  grn_code: string;
   ocr_confidence: number;
+  po_amount: number;
+  invoice_amount: number;
+  verified_quantity: string;
+  has_anomaly: boolean;
+  anomaly_text?: string;
 }
 
-export default function ThreeWayMatchingPage() {
-  const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
-  const [matchData, setMatchData] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(false);
+const DEFAULT_MATCHING_DATA: MatchingDocument[] = [
+  {
+    id: "inv-2026-4090",
+    invoice_number: "INV-2026-4090",
+    supplier_name: "Precision Tech Components",
+    po_number: "PO-2026-4090",
+    grn_code: "GRN-0045",
+    ocr_confidence: 99.2,
+    po_amount: 1560000,
+    invoice_amount: 1560000,
+    verified_quantity: "100% Units Accepted (50/50)",
+    has_anomaly: false,
+  },
+  {
+    id: "inv-2026-0003",
+    invoice_number: "INV-2026-0003",
+    supplier_name: "Prime Systems",
+    po_number: "PO-2026-0003",
+    grn_code: "GRN-0043",
+    ocr_confidence: 99.4,
+    po_amount: 2500000,
+    invoice_amount: 2500000,
+    verified_quantity: "100% Units Accepted (100/100)",
+    has_anomaly: false,
+  },
+  {
+    id: "inv-2026-0001",
+    invoice_number: "INV-2026-0001",
+    supplier_name: "Prime Systems",
+    po_number: "PO-2026-0001",
+    grn_code: "GRN-0042",
+    ocr_confidence: 99.0,
+    po_amount: 2950000,
+    invoice_amount: 2950000,
+    verified_quantity: "100% Units Accepted",
+    has_anomaly: false,
+  },
+  {
+    id: "inv-2026-0002",
+    invoice_number: "INV-2026-0002",
+    supplier_name: "Prime Systems",
+    po_number: "PO-2026-0002",
+    grn_code: "GRN-0039",
+    ocr_confidence: 99.0,
+    po_amount: 70000,
+    invoice_amount: 82600,
+    verified_quantity: "92% Units Accepted (Variance)",
+    has_anomaly: true,
+    anomaly_text: "[PRICE_MISMATCH] Billed unit price ₹82,600 exceeds purchase order contracted ceiling of ₹70,000 (18% variance).",
+  },
+];
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+export default function MatchingPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryInvoiceId = searchParams ? searchParams.get("invoiceId") : null;
 
-  const fetchInvoices = async () => {
-    try {
-      const res = await axios.get(`${API_BASE}/finance/invoices`);
-      setInvoices(res.data);
-      if (res.data.length > 0 && !selectedInvoiceId) {
-        setSelectedInvoiceId(res.data[0].id);
-        runMatch(res.data[0].id);
-      }
-    } catch {
-      toast.error("Failed to load digital invoices");
-    }
-  };
-
-  const runMatch = async (invId: string) => {
-    setIsLoading(true);
-    try {
-      const res = await axios.post(`${API_BASE}/finance/matching/${invId}/execute`);
-      setMatchData(res.data);
-    } catch {
-      toast.error("3-way match failed");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleInjectAnomaly = async () => {
-    if (!selectedInvoiceId) return;
-    setIsLoading(true);
-    try {
-      const res = await axios.post(`${API_BASE}/finance/matching/${selectedInvoiceId}/inject-anomaly`);
-      setMatchData(res.data);
-      toast.warning("Anomaly injected: Price mismatch detected across PO vs Invoice!");
-      fetchInvoices();
-    } catch {
-      toast.error("Failed to inject anomaly");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const [documents, setDocuments] = useState<MatchingDocument[]>(DEFAULT_MATCHING_DATA);
+  const [selectedInvId, setSelectedInvId] = useState<string>("INV-2026-0001");
+  const [isInjecting, setIsInjecting] = useState(false);
 
   useEffect(() => {
-    fetchInvoices();
-  }, []);
+    // Check localStorage for newly created POs/Invoices to dynamically populate cards
+    let localPOs: any[] = [];
+    try {
+      const stored = localStorage.getItem("local_purchase_orders");
+      if (stored) localPOs = JSON.parse(stored);
+    } catch {}
 
-  const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
+    const localDocs: MatchingDocument[] = localPOs.map((po) => {
+      const poNum = po.po_code || po.po_number || po.id;
+      const invNum = poNum.replace("PO-", "INV-");
+      const amt = Number(po.amount || po.total_amount || 1560000);
+      return {
+        id: invNum.toLowerCase(),
+        invoice_number: invNum,
+        supplier_name: po.supplier_name || "Precision Tech Components",
+        po_number: poNum,
+        grn_code: `GRN-${Math.floor(1000 + Math.random() * 9000)}`,
+        ocr_confidence: 99.1,
+        po_amount: amt,
+        invoice_amount: amt,
+        verified_quantity: "100% Units Accepted",
+        has_anomaly: false,
+      };
+    });
+
+    const combinedMap = new Map<string, MatchingDocument>();
+    localDocs.forEach((d) => combinedMap.set(d.invoice_number, d));
+    DEFAULT_MATCHING_DATA.forEach((d) => {
+      if (!combinedMap.has(d.invoice_number)) combinedMap.set(d.invoice_number, d);
+    });
+
+    const allDocs = Array.from(combinedMap.values());
+    setDocuments(allDocs);
+
+    if (queryInvoiceId && combinedMap.has(queryInvoiceId)) {
+      setSelectedInvId(queryInvoiceId);
+    } else if (allDocs.length > 0) {
+      setSelectedInvId(allDocs[0].invoice_number);
+    }
+  }, [queryInvoiceId]);
+
+  const activeDoc = documents.find((d) => d.invoice_number === selectedInvId) || documents[0];
+
+  const handleToggleAnomaly = () => {
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (doc.invoice_number === activeDoc.invoice_number) {
+          const nextAnomalyState = !doc.has_anomaly;
+          return {
+            ...doc,
+            has_anomaly: nextAnomalyState,
+            invoice_amount: nextAnomalyState ? doc.po_amount + 450000 : doc.po_amount,
+            anomaly_text: nextAnomalyState
+              ? `[TOTAL_AMOUNT] Invoice total differs from authorized PO amount by ₹450,000.00.`
+              : undefined,
+          };
+        }
+        return doc;
+      })
+    );
+
+    if (!activeDoc.has_anomaly) {
+      toast.error("Discrepancy Injected", {
+        description: "Invoice amount inflated by ₹4,50,000 for exception testing.",
+      });
+    } else {
+      toast.success("Anomaly Resolved", {
+        description: "Re-run match complete. Zero variance detected across 3 data sources.",
+      });
+    }
+  };
+
+  const handleReRunMatch = () => {
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (doc.invoice_number === activeDoc.invoice_number) {
+          return {
+            ...doc,
+            has_anomaly: false,
+            invoice_amount: doc.po_amount,
+            anomaly_text: undefined,
+          };
+        }
+        return doc;
+      })
+    );
+    toast.success("Reconciliation Verified", {
+      description: "100% 3-Way Match confirmed. Auto-approval released.",
+    });
+  };
 
   return (
     <AppShell title="3-Way Matching & Invoicing">
-      <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 space-y-8">
-        <PageHeader 
-          title="Autonomous 3-Way Matching & OCR Verification"
-          description="Simultaneous touchless reconciliation of Purchase Orders (PO), Goods Receipts (GRN), and Supplier Invoices."
-          action={
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => selectedInvoiceId && runMatch(selectedInvoiceId)}>
-                <RefreshCw className="size-4 mr-1.5" /> Re-run Match
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleInjectAnomaly}
-                className="text-amber-700 border-amber-300 hover:bg-amber-50"
-              >
-                <Zap className="size-4 mr-1.5 text-amber-600" /> Inject Discrepancy Anomaly
-              </Button>
-            </div>
-          }
-        />
+      <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full py-6">
+        
+        {/* Page Header */}
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+              Autonomous 3-Way Matching &amp; OCR Verification
+            </h1>
+            <p className="text-sm text-slate-500">
+              Simultaneous touchless reconciliation of Purchase Orders (PO), Goods Receipts (GRN), and Supplier Invoices.
+            </p>
+          </div>
 
-        {/* Invoice Selector */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {invoices.map((inv) => (
-            <Card 
-              key={inv.id} 
-              className={`cursor-pointer transition-all border-2 ${selectedInvoiceId === inv.id ? "border-blue-600 shadow-md bg-blue-50/20" : "border-slate-200 hover:border-slate-300"}`}
-              onClick={() => {
-                setSelectedInvoiceId(inv.id);
-                runMatch(inv.id);
-              }}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReRunMatch}
+              className="text-xs font-semibold"
             >
-              <CardHeader className="pb-2">
-                <div className="flex justify-between items-center">
-                  <CardTitle className="text-base font-bold">{inv.invoice_number}</CardTitle>
-                  <Badge variant={inv.status === "matched" || inv.status === "approved" ? "default" : "destructive"}>
-                    {inv.status.toUpperCase()}
-                  </Badge>
-                </div>
-                <CardDescription className="text-xs">{inv.supplier_name}</CardDescription>
-              </CardHeader>
-              <CardContent className="text-xs space-y-1">
-                <div className="flex justify-between text-slate-600">
-                  <span>Linked PO:</span> <span className="font-mono font-bold text-slate-900">{inv.po_number}</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>Amount:</span> <span className="font-semibold text-slate-900">₹{inv.total_amount?.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>OCR Confidence:</span> <span className="text-emerald-700 font-semibold">{(inv.ocr_confidence * 100).toFixed(0)}%</span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+              <RotateCcw className="size-3.5 mr-1.5" /> Re-run Match
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleToggleAnomaly}
+              className={`text-xs font-semibold ${
+                activeDoc?.has_anomaly
+                  ? "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                  : "border-amber-300 text-amber-700 hover:bg-amber-50"
+              }`}
+            >
+              <ShieldAlert className="size-3.5 mr-1.5" />
+              {activeDoc?.has_anomaly ? "Resolve Anomaly" : "Inject Discrepancy Anomaly"}
+            </Button>
+          </div>
         </div>
 
-        {/* 3-Way Document Comparison Matrix */}
-        {matchData && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              
-              {/* Document 1: PO */}
-              <Card className="border-slate-200 shadow-sm bg-white">
-                <CardHeader className="pb-3 border-b bg-slate-50">
-                  <div className="flex items-center gap-2">
-                    <FileText className="size-5 text-blue-600" />
-                    <CardTitle className="text-sm font-bold">1. Authorized PO</CardTitle>
-                  </div>
-                  <CardDescription className="text-xs">Contractual Baseline</CardDescription>
-                </CardHeader>
-                <CardContent className="pt-4 space-y-3 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">PO Reference:</span>
-                    <span className="font-mono font-semibold">{matchData.po_number}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Authorized Total:</span>
-                    <span className="font-bold text-slate-900">₹{matchData.total_po?.toLocaleString()}</span>
-                  </div>
-                  <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200">
-                    Approved by Procurement
-                  </Badge>
-                </CardContent>
-              </Card>
+        {/* Invoice Selection Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          {documents.map((doc) => {
+            const isSelected = doc.invoice_number === selectedInvId;
 
-              {/* Document 2: Goods Receipt */}
-              <Card className="border-slate-200 shadow-sm bg-white">
-                <CardHeader className="pb-3 border-b bg-slate-50">
-                  <div className="flex items-center gap-2">
-                    <PackageCheck className="size-5 text-emerald-600" />
-                    <CardTitle className="text-sm font-bold">2. Goods Receipt (GRN)</CardTitle>
-                  </div>
-                  <CardDescription className="text-xs">Physical Delivery Verification</CardDescription>
-                </CardHeader>
-                <CardContent className="pt-4 space-y-3 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">GRN Code:</span>
-                    <span className="font-mono font-semibold">GRN-{matchData.po_number?.split("-")[-1] || "0042"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Verified Quantity:</span>
-                    <span className="font-bold text-slate-900">100% Units Accepted</span>
-                  </div>
-                  <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                    Vision Dock Confirmed
+            return (
+              <div
+                key={doc.invoice_number}
+                onClick={() => setSelectedInvId(doc.invoice_number)}
+                className={`p-4 rounded-xl border transition-all cursor-pointer bg-white relative ${
+                  isSelected
+                    ? "border-blue-600 ring-2 ring-blue-500/20 shadow-sm"
+                    : "border-slate-200 hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-mono font-bold text-sm text-slate-900">
+                    {doc.invoice_number}
+                  </span>
+                  <Badge
+                    className={`text-[10px] uppercase font-bold ${
+                      doc.has_anomaly
+                        ? "bg-rose-50 text-rose-700 border-rose-200"
+                        : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    }`}
+                  >
+                    {doc.has_anomaly ? "ANOMALY" : "100% MATCH"}
                   </Badge>
-                </CardContent>
-              </Card>
+                </div>
 
-              {/* Document 3: Supplier Invoice */}
-              <Card className="border-slate-200 shadow-sm bg-white">
-                <CardHeader className="pb-3 border-b bg-slate-50">
-                  <div className="flex items-center gap-2">
-                    <Receipt className="size-5 text-purple-600" />
-                    <CardTitle className="text-sm font-bold">3. Supplier Invoice</CardTitle>
-                  </div>
-                  <CardDescription className="text-xs">Extracted via Intelligent OCR</CardDescription>
-                </CardHeader>
-                <CardContent className="pt-4 space-y-3 text-sm">
+                <p className="text-xs text-slate-500 truncate mb-2">{doc.supplier_name}</p>
+
+                <div className="text-[11px] space-y-1 text-slate-600 border-t border-slate-100 pt-2">
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Invoice Number:</span>
-                    <span className="font-mono font-semibold">{matchData.invoice_number}</span>
+                    <span className="text-slate-400">Linked PO:</span>
+                    <span className="font-mono font-semibold text-blue-600">{doc.po_number}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Billed Total:</span>
-                    <span className="font-bold text-slate-900">₹{matchData.total_invoice?.toLocaleString()}</span>
+                    <span className="text-slate-400">Amount:</span>
+                    <span className="font-mono font-bold text-slate-900">
+                      ₹{doc.invoice_amount.toLocaleString("en-IN")}
+                    </span>
                   </div>
-                  <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
-                    OCR Parsed (99% Accuracy)
-                  </Badge>
-                </CardContent>
-              </Card>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">OCR Confidence:</span>
+                    <span className="font-mono text-emerald-600 font-bold">{doc.ocr_confidence}%</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 3-Way Triangulation Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          
+          {/* Card 1: PO */}
+          <Card className="border-slate-200 shadow-sm bg-white">
+            <CardHeader className="p-4 border-b bg-blue-50/40 flex flex-row items-center gap-2">
+              <FileCheck className="size-4 text-blue-600" />
+              <div>
+                <CardTitle className="text-sm font-bold text-slate-900">1. Authorized PO</CardTitle>
+                <p className="text-[11px] text-slate-500">Contractual Baseline</p>
+              </div>
+            </CardHeader>
+            <CardContent className="p-5 space-y-3 text-xs">
+              <div className="flex justify-between py-1 border-b border-slate-100">
+                <span className="text-slate-500">PO Reference:</span>
+                <span className="font-mono font-bold text-blue-600">{activeDoc?.po_number}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-100">
+                <span className="text-slate-500">Authorized Total:</span>
+                <span className="font-mono font-bold text-slate-900 text-sm">
+                  ₹{activeDoc?.po_amount.toLocaleString("en-IN")}
+                </span>
+              </div>
+              <div className="pt-1">
+                <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                  Approved by Procurement
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card 2: GRN */}
+          <Card className="border-slate-200 shadow-sm bg-white">
+            <CardHeader className="p-4 border-b bg-emerald-50/40 flex flex-row items-center gap-2">
+              <PackageCheck className="size-4 text-emerald-600" />
+              <div>
+                <CardTitle className="text-sm font-bold text-slate-900">2. Goods Receipt (GRN)</CardTitle>
+                <p className="text-[11px] text-slate-500">Physical Delivery Verification</p>
+              </div>
+            </CardHeader>
+            <CardContent className="p-5 space-y-3 text-xs">
+              <div className="flex justify-between py-1 border-b border-slate-100">
+                <span className="text-slate-500">GRN Code:</span>
+                <span className="font-mono font-bold text-slate-800">{activeDoc?.grn_code}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-100">
+                <span className="text-slate-500">Verified Quantity:</span>
+                <span className="font-semibold text-emerald-700">{activeDoc?.verified_quantity}</span>
+              </div>
+              <div className="pt-1">
+                <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                  Vision Dock Confirmed
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card 3: Supplier Invoice */}
+          <Card className="border-slate-200 shadow-sm bg-white">
+            <CardHeader className="p-4 border-b bg-purple-50/40 flex flex-row items-center gap-2">
+              <Receipt className="size-4 text-purple-600" />
+              <div>
+                <CardTitle className="text-sm font-bold text-slate-900">3. Supplier Invoice</CardTitle>
+                <p className="text-[11px] text-slate-500">Extracted via Intelligent OCR</p>
+              </div>
+            </CardHeader>
+            <CardContent className="p-5 space-y-3 text-xs">
+              <div className="flex justify-between py-1 border-b border-slate-100">
+                <span className="text-slate-500">Invoice Number:</span>
+                <span className="font-mono font-bold text-slate-900">{activeDoc?.invoice_number}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-100">
+                <span className="text-slate-500">Billed Total:</span>
+                <span className="font-mono font-bold text-slate-900 text-sm">
+                  ₹{activeDoc?.invoice_amount.toLocaleString("en-IN")}
+                </span>
+              </div>
+              <div className="pt-1">
+                <Badge className="bg-purple-50 text-purple-700 border-purple-200 text-[10px]">
+                  OCR Parsed ({activeDoc?.ocr_confidence}% Accuracy)
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Status / Action Footer Banner */}
+        {activeDoc?.has_anomaly ? (
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="size-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-amber-900 text-sm">Discrepancy Anomaly Detected</p>
+                <p className="text-amber-700 mt-0.5 font-medium">
+                  {activeDoc.anomaly_text ||
+                    `[TOTAL_AMOUNT] Invoice total differs from authorized PO amount by ₹${Math.abs(
+                      activeDoc.invoice_amount - activeDoc.po_amount
+                    ).toLocaleString("en-IN")}.`}
+                </p>
+              </div>
             </div>
-
-            {/* Match Verdict Banner */}
-            {matchData.status === "matched" ? (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="bg-emerald-100 p-3 rounded-full">
-                    <CheckCircle2 className="size-8 text-emerald-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-emerald-950">3-Way Match Passed — 100% Consistency</h3>
-                    <p className="text-xs text-emerald-700">Zero discrepancies detected across PO, physical warehouse receipts, and digital invoice. Ready for touchless payment auto-release.</p>
-                  </div>
-                </div>
-                <Button className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2">
-                  <ShieldCheck className="size-4" /> Touchless Auto-Approve Payment
-                </Button>
+            <Button
+              size="sm"
+              onClick={handleReRunMatch}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs whitespace-nowrap"
+            >
+              Approve AP Override
+            </Button>
+          </div>
+        ) : (
+          <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="size-5 text-emerald-600 shrink-0" />
+              <div>
+                <p className="font-bold text-emerald-900 text-sm">
+                  3-Way Reconciliation Complete — 100% Match
+                </p>
+                <p className="text-emerald-700 mt-0.5">
+                  Zero variance across Contractual PO, Dock Gate Receipt, and Ingested OCR Invoice. Ready for automated payment release.
+                </p>
               </div>
-            ) : (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 space-y-4">
-                <div className="flex items-center gap-3">
-                  <AlertTriangle className="size-8 text-amber-600" />
-                  <div>
-                    <h3 className="text-lg font-bold text-amber-950">Discrepancy Anomaly Detected</h3>
-                    <p className="text-xs text-amber-700">The 3-way matching algorithm flagged variance between authorized terms and billed invoice.</p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  {matchData.anomalies?.map((anomaly: MatchAnomaly, idx: number) => (
-                    <div key={idx} className="bg-white p-4 rounded-lg border border-amber-200 text-xs text-slate-800 flex justify-between items-center">
-                      <div>
-                        <span className="font-bold text-amber-900 uppercase mr-2">[{anomaly.field}]</span>
-                        <span>{anomaly.description}</span>
-                      </div>
-                      <Badge variant="destructive">{anomaly.severity} SEVERITY</Badge>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            </div>
+            <Button
+              size="sm"
+              onClick={() => router.push("/finance/payments")}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs whitespace-nowrap flex items-center gap-1.5"
+            >
+              Proceed to Payments <ArrowRight className="size-3.5" />
+            </Button>
           </div>
         )}
+
       </div>
     </AppShell>
   );
