@@ -12,18 +12,23 @@ import { createPurchaseRequest } from "@/lib/api";
 interface RequisitionReviewCardProps {
   initialData?: any;
   data?: any;
+  extraction?: any;
   onSuccess?: (createdReq: any) => void;
+  onCreated?: (createdReq: any) => void;
   onCancel?: () => void;
 }
 
 export function RequisitionReviewCard({
   initialData,
   data,
+  extraction,
   onSuccess,
+  onCreated,
   onCancel,
 }: RequisitionReviewCardProps) {
   const router = useRouter();
-  const source = initialData || data || {};
+  const callback = onCreated || onSuccess;
+  const source = extraction?.draft || extraction || initialData || data || {};
 
   const [itemDescription, setItemDescription] = useState(
     source.item_description || source.item || source.title || "Barcode Scanners"
@@ -109,8 +114,8 @@ export function RequisitionReviewCard({
       description: `Routed to Autonomous Sourcing for ${quantity}x ${itemDescription}.`,
     });
 
-    if (onSuccess) {
-      onSuccess(newRequest);
+    if (callback) {
+      callback(newRequest);
     }
 
     setIsSubmitting(false);
