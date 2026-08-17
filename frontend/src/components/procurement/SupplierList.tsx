@@ -24,8 +24,8 @@ export function SupplierList({
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center p-12">
-        <LoadingSpinner className="size-10 mb-4" />
-        <p className="text-slate-500">Calculating recommendations...</p>
+        <LoadingSpinner className="size-8 mb-3 text-primary" />
+        <p className="text-xs text-muted-foreground font-mono">Calculating recommendations...</p>
       </div>
     );
   }
@@ -36,7 +36,7 @@ export function SupplierList({
         icon={AlertTriangle}
         title="Failed to load recommendations"
         description={error.message || "An unexpected error occurred while calculating supplier scores."}
-        className="bg-red-50/50 border-red-100"
+        className="bg-destructive/10 border-destructive/20"
       />
     );
   }
@@ -64,3 +64,4 @@ export function SupplierList({
     </div>
   );
 }
+

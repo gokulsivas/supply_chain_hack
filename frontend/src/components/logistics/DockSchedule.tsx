@@ -12,7 +12,7 @@ interface DockScheduleProps {
 export function DockSchedule({ docks, className, renderAction }: DockScheduleProps) {
   if (docks.length === 0) {
     return (
-      <div className={cn("p-8 text-center text-muted-foreground bg-muted/20 rounded-xl border border-dashed border-border", className)}>
+      <div className={cn("p-8 text-center text-muted-foreground bg-muted/20 rounded-none border border-dashed border-border/80 text-xs", className)}>
         No docks found in the schedule.
       </div>
     );
@@ -41,3 +41,4 @@ export function DockSchedule({ docks, className, renderAction }: DockSchedulePro
     </div>
   );
 }
+

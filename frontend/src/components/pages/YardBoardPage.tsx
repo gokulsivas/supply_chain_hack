@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { motion } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { getYard, listDockAlerts, resetLogisticsDemo, isApiError } from "@/lib/api";
 import type { YardSlotResponse, DockAlertResponse } from "@/types/logistics";
@@ -17,7 +18,7 @@ export function YardBoardPage() {
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -32,11 +33,34 @@ export function YardBoardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadData();
+    let isMounted = true;
+    const fetchAsync = async () => {
+      try {
+        const [yardData, alertsData] = await Promise.all([
+          getYard(),
+          listDockAlerts()
+        ]);
+        if (isMounted) {
+          setSlots(yardData);
+          setAlerts(alertsData);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setError(isApiError(err) ? err.detail : "Failed to load yard data.");
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchAsync();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleReset = async () => {
@@ -67,19 +91,41 @@ export function YardBoardPage() {
 
   return (
     <AppShell title="Yard management">
-      <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">Yard status board</h1>
-            <p className="text-muted-foreground">Monitor inbound trailers, yard positions, and scheduled arrivals.</p>
+      <motion.div 
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+        className="flex flex-col gap-6 max-w-7xl mx-auto w-full py-6 px-4 sm:px-6 pb-12"
+      >
+        {/* Page Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-0.5">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Yard Management &amp; Trailer Positions
+            </h1>
+            <p className="text-xs text-muted-foreground">
+              Real-time monitoring of inbound trailers, parking bay status, and dwell-time allocation.
+            </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleReset} disabled={resetting || loading}>
-              <RotateCcw className="size-4 mr-2" />
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleReset} 
+              disabled={resetting || loading}
+              className="text-xs h-8 px-3 shadow-2xs font-semibold gap-1.5"
+            >
+              <RotateCcw className={`size-3.5 ${resetting ? "animate-spin" : ""}`} />
               Reset Demo
             </Button>
-            <Button variant="outline" size="sm" onClick={loadData} disabled={loading || resetting}>
-              <RefreshCw className={cn("size-4 mr-2", loading && "animate-spin")} />
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={loadData} 
+              disabled={loading || resetting}
+              className="text-xs h-8 px-3 shadow-2xs font-semibold gap-1.5"
+            >
+              <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
           </div>
@@ -109,18 +155,12 @@ export function YardBoardPage() {
         ) : slots.length > 0 ? (
           <YardGrid slots={slots} />
         ) : (
-          <div className="text-center p-12 border border-dashed rounded-xl text-muted-foreground bg-muted/20">
+          <div className="text-center p-12 border border-dashed border-border/80 rounded-none text-muted-foreground bg-muted/20 text-xs">
             No yard slots found.
           </div>
         )}
-      </div>
+      </motion.div>
     </AppShell>
   );
 }
 
-// Quick helper to avoid importing cn recursively if I missed it
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}

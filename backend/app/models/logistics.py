@@ -105,6 +105,21 @@ class Truck(Base):
     # NORMAL, HIGH, CRITICAL
     priority: Mapped[str] = mapped_column(String(20), nullable=False, default="NORMAL")
 
+    # Smart Logistics dataset telemetry fields
+    source_asset_id: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    display_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    display_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    inventory_level: Mapped[float | None] = mapped_column(Float, nullable=True)
+    temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
+    humidity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    traffic_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    waiting_time: Mapped[float | None] = mapped_column(Float, nullable=True)
+    logistics_delay_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    asset_utilization: Mapped[float | None] = mapped_column(Float, nullable=True)
+    demand_forecast: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_delayed: Mapped[bool] = mapped_column(Boolean, default=False)
+    latest_telemetry_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -122,9 +137,55 @@ class Truck(Base):
     )
     yard_slot: Mapped["YardSlot"] = relationship("YardSlot", back_populates="truck", uselist=False)
     dock_assignment: Mapped["DockAssignment"] = relationship("DockAssignment", back_populates="truck", uselist=False)
+    telemetry: Mapped[list["TruckTelemetry"]] = relationship("TruckTelemetry", back_populates="truck", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Truck code={self.truck_code!r} progress={self.progress_percent}%>"
+
+
+# ── TruckTelemetry (Smart Logistics History) ────────────────────────
+
+class TruckTelemetry(Base):
+    """Historical time-series telemetry imported from Smart Logistics dataset."""
+
+    __tablename__ = "truck_telemetry"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    truck_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("trucks.id"), nullable=True, index=True
+    )
+    source_timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=False
+    )
+    source_asset_id: Mapped[str] = mapped_column(
+        String(50), index=True, nullable=False
+    )
+    source_latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    source_longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    display_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    display_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    inventory_level: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shipment_status: Mapped[str | None] = mapped_column(String(50), index=True, nullable=True)
+    temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
+    humidity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    traffic_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    waiting_time: Mapped[float | None] = mapped_column(Float, nullable=True)
+    logistics_delay_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    asset_utilization: Mapped[float | None] = mapped_column(Float, nullable=True)
+    demand_forecast: Mapped[float | None] = mapped_column(Float, nullable=True)
+    logistics_delay: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    user_transaction_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    user_purchase_frequency: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    truck: Mapped["Truck"] = relationship("Truck", back_populates="telemetry")
+
+    def __repr__(self) -> str:
+        return f"<TruckTelemetry asset={self.source_asset_id!r} ts={self.source_timestamp} status={self.shipment_status!r}>"
 
 
 # ── LogisticsAlert ────────────────────────────────────────────────

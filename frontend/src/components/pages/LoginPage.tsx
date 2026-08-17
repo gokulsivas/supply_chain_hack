@@ -1,18 +1,20 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, Suspense } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { z } from "zod";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { login, register, extractApiError } from "@/lib/api";
 import { setToken, saveUser } from "@/lib/auth";
+import { ThemeToggle } from "@/components/shared/ThemeToggle";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardHeader } from "@/components/ui/card";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ShieldCheck, Mail, LockKeyhole, User, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
 
@@ -31,11 +33,20 @@ const signupSchema = z.object({
   path: ["confirmPassword"],
 });
 
-export function LoginPage() {
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const paramTab = searchParams.get("tab") === "signup" ? "signup" : "signin";
   const { checkAuth } = useAuth();
+  const shouldReduceMotion = useReducedMotion();
   
-  const [activeTab, setActiveTab] = useState<"signin" | "signup">("signin");
+  const [prevParamTab, setPrevParamTab] = useState(searchParams.get("tab"));
+  const [activeTab, setActiveTab] = useState<"signin" | "signup">(paramTab);
+
+  if (searchParams.get("tab") !== prevParamTab) {
+    setPrevParamTab(searchParams.get("tab"));
+    setActiveTab(searchParams.get("tab") === "signup" ? "signup" : "signin");
+  }
   const [isLoading, setIsLoading] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -79,7 +90,7 @@ export function LoginPage() {
       await checkAuth();
 
       router.push("/dashboard");
-    } catch (err: any) {
+    } catch (err: unknown) {
       setGlobalError(extractApiError(err));
     } finally {
       setIsLoading(false);
@@ -129,7 +140,7 @@ export function LoginPage() {
 
       setSignupSuccess(true);
       router.push("/dashboard");
-    } catch (err: any) {
+    } catch (err: unknown) {
       setGlobalError(extractApiError(err));
     } finally {
       setIsLoading(false);
@@ -137,24 +148,54 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 p-4 md:p-8 font-sans text-slate-900">
+    <div className="min-h-screen w-full relative flex items-center justify-center bg-background p-4 sm:p-6 md:p-8 font-sans text-foreground overflow-hidden">
+      
+      {/* Background Ambient Glow matching Landing Page */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden" aria-hidden="true">
+        <div 
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full opacity-25 dark:opacity-40 blur-[130px]"
+          style={{
+            background: "radial-gradient(ellipse at center, rgba(99, 102, 241, 0.45) 0%, rgba(147, 51, 234, 0.25) 45%, transparent 75%)"
+          }}
+        />
+      </div>
+
+      {/* Top Bar with Return Link & Theme Toggle */}
+      <div className="absolute top-4 inset-x-4 sm:inset-x-8 max-w-7xl mx-auto flex items-center justify-between z-20">
+        <Link 
+          href="/"
+          className="text-xs font-bold tracking-wider text-muted-foreground hover:text-foreground flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card/60 border border-border/80 hover:bg-muted/80 transition-colors shadow-2xs"
+        >
+          ← Overview
+        </Link>
+        <div className="bg-card/60 border border-border/80 rounded-full p-0.5 shadow-2xs">
+          <ThemeToggle />
+        </div>
+      </div>
+
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: "easeOut" }}
-        className="w-full max-w-[440px] z-10"
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        className="w-full max-w-[420px] z-10 space-y-6 my-auto pt-10"
       >
-        <div className="mb-8 text-center">
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <div className="bg-indigo-100 p-2.5 rounded-xl shadow-sm">
-              <ShieldCheck className="w-7 h-7 text-indigo-600" />
-            </div>
+        {/* Brand Header */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center justify-center p-2.5 rounded-none bg-primary/10 border border-primary/20 text-primary shadow-2xs">
+            <ShieldCheck className="size-6" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Supply Chain Control Tower</h1>
-          <p className="text-sm text-slate-500 mt-2 font-medium tracking-wide">Cognizant E2 + PR2</p>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">
+              Supply Chain Control Tower
+            </h1>
+            <p className="text-xs font-medium text-muted-foreground tracking-wide mt-0.5 uppercase">
+              Autonomous Operations Platform
+            </p>
+          </div>
         </div>
 
-        <Card className="border-slate-200 bg-white shadow-xl rounded-2xl overflow-hidden">
+        {/* Auth Card */}
+        <Card className="border border-border/80 bg-card/95 backdrop-blur-md shadow-lg rounded-2xl overflow-hidden">
           <Tabs 
             value={activeTab} 
             onValueChange={(val: string) => { 
@@ -164,201 +205,262 @@ export function LoginPage() {
             }} 
             className="w-full"
           >
-            <CardHeader className="pb-4 pt-6 px-6">
-              <TabsList className="grid w-full grid-cols-2 bg-slate-100 p-1 rounded-lg">
-                <TabsTrigger 
-                  value="signin" 
-                  className="rounded-md text-sm font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm text-slate-600 py-1.5"
+            <CardHeader className="p-4 pb-0">
+              {/* Custom segmented tab control — bypasses Base UI TabsTrigger's
+                  h-[calc(100%-1px)] and bg-muted layering which caused the
+                  active tab border to be partially obscured by the track */}
+              <div
+                role="tablist"
+                aria-label="Authentication mode"
+                className="grid w-full grid-cols-2 gap-1 rounded-lg border border-border bg-muted/60 p-1"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  id="tab-signin"
+                  aria-selected={activeTab === "signin"}
+                  aria-controls="panel-signin"
+                  onClick={() => { setActiveTab("signin"); setGlobalError(null); setFieldErrors({}); }}
+                  className={[
+                    "flex items-center justify-center rounded-md py-2 text-xs font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-0 cursor-pointer",
+                    activeTab === "signin"
+                      ? "bg-card text-foreground border border-border shadow-none"
+                      : "bg-transparent text-muted-foreground border border-transparent hover:text-foreground",
+                  ].join(" ")}
                 >
                   Sign In
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="signup" 
-                  className="rounded-md text-sm font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm text-slate-600 py-1.5"
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  id="tab-signup"
+                  aria-selected={activeTab === "signup"}
+                  aria-controls="panel-signup"
+                  onClick={() => { setActiveTab("signup"); setGlobalError(null); setFieldErrors({}); }}
+                  className={[
+                    "flex items-center justify-center rounded-md py-2 text-xs font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-0 cursor-pointer",
+                    activeTab === "signup"
+                      ? "bg-card text-foreground border border-border shadow-none"
+                      : "bg-transparent text-muted-foreground border border-transparent hover:text-foreground",
+                  ].join(" ")}
                 >
                   Create Account
-                </TabsTrigger>
-              </TabsList>
+                </button>
+              </div>
             </CardHeader>
 
+            {/* Sign In Tab */}
             <TabsContent value="signin" className="m-0 focus-visible:outline-none focus-visible:ring-0">
-              <form onSubmit={handleSignIn} className="px-6 pb-6 pt-2">
-                <div className="space-y-4">
-                  {globalError && (
-                    <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-700">
-                      <AlertCircle className="h-4 w-4 text-red-600" />
-                      <AlertDescription className="ml-2 font-medium text-sm">{globalError}</AlertDescription>
-                    </Alert>
-                  )}
-                  {signupSuccess && !globalError && (
-                    <Alert className="bg-green-50 border-green-200 text-green-800">
-                      <ShieldCheck className="h-4 w-4 text-green-600" />
-                      <AlertDescription className="ml-2 font-medium text-sm">Account created successfully. Logging you in...</AlertDescription>
-                    </Alert>
-                  )}
-                  
-                  <div className="space-y-1.5">
-                    <Label htmlFor="signin-email" className="text-sm font-semibold text-slate-700">Email address</Label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                      <Input 
-                        id="signin-email"
-                        placeholder="name@example.com" 
-                        type="email" 
-                        autoComplete="email"
-                        className={`pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${fieldErrors.email ? 'border-red-300 focus-visible:ring-red-500' : ''}`}
-                        value={loginEmail}
-                        onChange={(e) => setLoginEmail(e.target.value)}
-                        disabled={isLoading}
-                      />
-                    </div>
-                    {fieldErrors.email && <p className="text-xs font-medium text-red-600 mt-1">{fieldErrors.email}</p>}
+              <form onSubmit={handleSignIn} className="p-5 pt-4 space-y-4">
+                {globalError && (
+                  <Alert variant="destructive" className="bg-destructive/10 border-destructive/30 text-destructive text-xs py-2.5">
+                    <AlertCircle className="size-4 shrink-0 text-destructive" />
+                    <AlertDescription className="ml-2 font-medium">{globalError}</AlertDescription>
+                  </Alert>
+                )}
+
+                {signupSuccess && !globalError && (
+                  <Alert className="bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-xs py-2.5">
+                    <ShieldCheck className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <AlertDescription className="ml-2 font-medium">Account created successfully. Authenticating...</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="signin-email" className="text-xs font-semibold text-foreground">
+                    Email Address
+                  </Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                    <Input 
+                      id="signin-email"
+                      placeholder="name@example.com" 
+                      type="email" 
+                      autoComplete="email"
+                      className={`pl-9 bg-background border-border text-foreground placeholder:text-muted-foreground text-xs h-9 focus-visible:ring-1 focus-visible:ring-primary ${fieldErrors.email ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                      value={loginEmail}
+                      onChange={(e) => setLoginEmail(e.target.value)}
+                      disabled={isLoading}
+                    />
                   </div>
-                  
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="signin-password" className="text-sm font-semibold text-slate-700">Password</Label>
-                    </div>
-                    <div className="relative">
-                      <LockKeyhole className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                      <Input 
-                        id="signin-password"
-                        type="password"
-                        autoComplete="current-password"
-                        placeholder="••••••••"
-                        className={`pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${fieldErrors.password ? 'border-red-300 focus-visible:ring-red-500' : ''}`}
-                        value={loginPassword}
-                        onChange={(e) => setLoginPassword(e.target.value)}
-                        disabled={isLoading}
-                      />
-                    </div>
-                    {fieldErrors.password && <p className="text-xs font-medium text-red-600 mt-1">{fieldErrors.password}</p>}
-                  </div>
+                  {fieldErrors.email && (
+                    <p className="text-[11px] font-medium text-destructive mt-1">{fieldErrors.email}</p>
+                  )}
                 </div>
                 
-                <div className="mt-6 flex flex-col gap-4">
-                  <Button 
-                    type="submit" 
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 h-auto shadow-sm" 
-                    disabled={isLoading}
-                  >
-                    {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : (
-                      <>
-                        Sign In
-                        <ArrowRight className="ml-2 h-4 w-4" />
-                      </>
-                    )}
-                  </Button>
-                  
-                  <div className="text-center text-xs text-slate-500 mt-2">
-                    <p className="font-medium">Demo Account:</p>
-                    <p className="font-mono mt-1 text-slate-600 bg-slate-100 inline-block px-2 py-1 rounded">gokul@supplychain.dev / pass1234</p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="signin-password" className="text-xs font-semibold text-foreground">
+                    Password
+                  </Label>
+                  <div className="relative">
+                    <LockKeyhole className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                    <Input 
+                      id="signin-password"
+                      type="password"
+                      autoComplete="current-password"
+                      placeholder="••••••••"
+                      className={`pl-9 bg-background border-border text-foreground placeholder:text-muted-foreground text-xs h-9 focus-visible:ring-1 focus-visible:ring-primary ${fieldErrors.password ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      disabled={isLoading}
+                    />
                   </div>
+                  {fieldErrors.password && (
+                    <p className="text-[11px] font-medium text-destructive mt-1">{fieldErrors.password}</p>
+                  )}
                 </div>
+                
+                <Button 
+                  type="submit" 
+                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs h-9 shadow-xs flex items-center justify-center gap-1.5 cursor-pointer mt-2" 
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin" />
+                      <span>Authenticating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Sign In to Control Tower</span>
+                      <ArrowRight className="size-3.5" />
+                    </>
+                  )}
+                </Button>
               </form>
             </TabsContent>
 
+            {/* Sign Up Tab */}
             <TabsContent value="signup" className="m-0 focus-visible:outline-none focus-visible:ring-0">
-              <form onSubmit={handleSignUp} className="px-6 pb-6 pt-2">
-                <div className="space-y-4">
-                  {globalError && (
-                    <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-700">
-                      <AlertCircle className="h-4 w-4 text-red-600" />
-                      <AlertDescription className="ml-2 font-medium text-sm">{globalError}</AlertDescription>
-                    </Alert>
+              <form onSubmit={handleSignUp} className="p-5 pt-4 space-y-3.5">
+                {globalError && (
+                  <Alert variant="destructive" className="bg-destructive/10 border-destructive/30 text-destructive text-xs py-2.5">
+                    <AlertCircle className="size-4 shrink-0 text-destructive" />
+                    <AlertDescription className="ml-2 font-medium">{globalError}</AlertDescription>
+                  </Alert>
+                )}
+                
+                <div className="space-y-1.5">
+                  <Label htmlFor="signup-name" className="text-xs font-semibold text-foreground">
+                    Full Name
+                  </Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                    <Input 
+                      id="signup-name"
+                      placeholder="Jane Doe" 
+                      autoComplete="name"
+                      className={`pl-9 bg-background border-border text-foreground placeholder:text-muted-foreground text-xs h-9 focus-visible:ring-1 focus-visible:ring-primary ${fieldErrors.name ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                      value={signupName}
+                      onChange={(e) => setSignupName(e.target.value)}
+                      disabled={isLoading}
+                    />
+                  </div>
+                  {fieldErrors.name && (
+                    <p className="text-[11px] font-medium text-destructive mt-1">{fieldErrors.name}</p>
                   )}
-                  
-                  <div className="space-y-1.5">
-                    <Label htmlFor="signup-name" className="text-sm font-semibold text-slate-700">Full Name</Label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                      <Input 
-                        id="signup-name"
-                        placeholder="Jane Doe" 
-                        autoComplete="name"
-                        className={`pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${fieldErrors.name ? 'border-red-300 focus-visible:ring-red-500' : ''}`}
-                        value={signupName}
-                        onChange={(e) => setSignupName(e.target.value)}
-                        disabled={isLoading}
-                      />
-                    </div>
-                    {fieldErrors.name && <p className="text-xs font-medium text-red-600 mt-1">{fieldErrors.name}</p>}
-                  </div>
-                  
-                  <div className="space-y-1.5">
-                    <Label htmlFor="signup-email" className="text-sm font-semibold text-slate-700">Email address</Label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                      <Input 
-                        id="signup-email"
-                        placeholder="name@example.com" 
-                        type="email" 
-                        autoComplete="email"
-                        className={`pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${fieldErrors.email ? 'border-red-300 focus-visible:ring-red-500' : ''}`}
-                        value={signupEmail}
-                        onChange={(e) => setSignupEmail(e.target.value)}
-                        disabled={isLoading}
-                      />
-                    </div>
-                    {fieldErrors.email && <p className="text-xs font-medium text-red-600 mt-1">{fieldErrors.email}</p>}
-                  </div>
-                  
-                  <div className="space-y-1.5">
-                    <Label htmlFor="signup-password" className="text-sm font-semibold text-slate-700">Password</Label>
-                    <div className="relative">
-                      <LockKeyhole className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                      <Input 
-                        id="signup-password"
-                        type="password"
-                        autoComplete="new-password"
-                        placeholder="Min. 6 characters"
-                        className={`pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${fieldErrors.password ? 'border-red-300 focus-visible:ring-red-500' : ''}`}
-                        value={signupPassword}
-                        onChange={(e) => setSignupPassword(e.target.value)}
-                        disabled={isLoading}
-                      />
-                    </div>
-                    {fieldErrors.password && <p className="text-xs font-medium text-red-600 mt-1">{fieldErrors.password}</p>}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="signup-confirm" className="text-sm font-semibold text-slate-700">Confirm Password</Label>
-                    <div className="relative">
-                      <LockKeyhole className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                      <Input 
-                        id="signup-confirm"
-                        type="password"
-                        autoComplete="new-password"
-                        placeholder="Must match password"
-                        className={`pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${fieldErrors.confirmPassword ? 'border-red-300 focus-visible:ring-red-500' : ''}`}
-                        value={signupConfirm}
-                        onChange={(e) => setSignupConfirm(e.target.value)}
-                        disabled={isLoading}
-                      />
-                    </div>
-                    {fieldErrors.confirmPassword && <p className="text-xs font-medium text-red-600 mt-1">{fieldErrors.confirmPassword}</p>}
-                  </div>
                 </div>
                 
-                <div className="mt-6">
-                  <Button 
-                    type="submit" 
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 h-auto shadow-sm" 
-                    disabled={isLoading}
-                  >
-                    {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : (
-                      <>
-                        Create Account
-                        <ArrowRight className="ml-2 h-4 w-4" />
-                      </>
-                    )}
-                  </Button>
+                <div className="space-y-1.5">
+                  <Label htmlFor="signup-email" className="text-xs font-semibold text-foreground">
+                    Email Address
+                  </Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                    <Input 
+                      id="signup-email"
+                      placeholder="name@example.com" 
+                      type="email" 
+                      autoComplete="email"
+                      className={`pl-9 bg-background border-border text-foreground placeholder:text-muted-foreground text-xs h-9 focus-visible:ring-1 focus-visible:ring-primary ${fieldErrors.email ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                      value={signupEmail}
+                      onChange={(e) => setSignupEmail(e.target.value)}
+                      disabled={isLoading}
+                    />
+                  </div>
+                  {fieldErrors.email && (
+                    <p className="text-[11px] font-medium text-destructive mt-1">{fieldErrors.email}</p>
+                  )}
                 </div>
+                
+                <div className="space-y-1.5">
+                  <Label htmlFor="signup-password" className="text-xs font-semibold text-foreground">
+                    Password
+                  </Label>
+                  <div className="relative">
+                    <LockKeyhole className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                    <Input 
+                      id="signup-password"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="Min. 6 characters"
+                      className={`pl-9 bg-background border-border text-foreground placeholder:text-muted-foreground text-xs h-9 focus-visible:ring-1 focus-visible:ring-primary ${fieldErrors.password ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                      value={signupPassword}
+                      onChange={(e) => setSignupPassword(e.target.value)}
+                      disabled={isLoading}
+                    />
+                  </div>
+                  {fieldErrors.password && (
+                    <p className="text-[11px] font-medium text-destructive mt-1">{fieldErrors.password}</p>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="signup-confirm" className="text-xs font-semibold text-foreground">
+                    Confirm Password
+                  </Label>
+                  <div className="relative">
+                    <LockKeyhole className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                    <Input 
+                      id="signup-confirm"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="Must match password"
+                      className={`pl-9 bg-background border-border text-foreground placeholder:text-muted-foreground text-xs h-9 focus-visible:ring-1 focus-visible:ring-primary ${fieldErrors.confirmPassword ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                      value={signupConfirm}
+                      onChange={(e) => setSignupConfirm(e.target.value)}
+                      disabled={isLoading}
+                    />
+                  </div>
+                  {fieldErrors.confirmPassword && (
+                    <p className="text-[11px] font-medium text-destructive mt-1">{fieldErrors.confirmPassword}</p>
+                  )}
+                </div>
+                
+                <Button 
+                  type="submit" 
+                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs h-9 shadow-xs flex items-center justify-center gap-1.5 cursor-pointer mt-2" 
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin" />
+                      <span>Creating Account...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Create Account &amp; Sign In</span>
+                      <ArrowRight className="size-3.5" />
+                    </>
+                  )}
+                </Button>
               </form>
             </TabsContent>
           </Tabs>
         </Card>
       </motion.div>
     </div>
+  );
+}
+
+export function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen w-full flex items-center justify-center bg-background text-foreground">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }

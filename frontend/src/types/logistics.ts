@@ -5,10 +5,22 @@ export interface ShipmentInfo {
   purchase_order_reference: string;
   origin_location: string;
   destination_location: string;
+  origin_state?: string | null;
+  dest_state?: string | null;
+  origin_lat?: number | null;
+  origin_lng?: number | null;
+  dest_lat?: number | null;
+  dest_lng?: number | null;
   status: string;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
   shipment?: ShipmentInfo | null;
+}
+
+export interface RoutePoint {
+  lat: number;
+  lng: number;
+  name?: string | null;
 }
 
 export interface TruckPosition {
@@ -21,13 +33,60 @@ export interface TruckPosition {
   load_type: string | null;
   current_lat: number;
   current_lng: number;
+  display_lat?: number | null;
+  display_lng?: number | null;
+  origin_name?: string | null;
+  dest_name?: string | null;
+  origin_state?: string | null;
+  dest_state?: string | null;
+  origin_lat?: number | null;
+  origin_lng?: number | null;
+  dest_lat?: number | null;
+  dest_lng?: number | null;
   progress_percent: number;
   original_eta: string | null;
   current_eta: string | null;
   delay_minutes: number;
-  shipment_id: string;
-  updated_at: string;
+  shipment_id?: string | null;
+  updated_at?: string;
   shipment?: ShipmentInfo | null;
+
+  // Smart Logistics Telemetry
+  source_asset_id?: string | null;
+  inventory_level?: number | null;
+  temperature?: number | null;
+  humidity?: number | null;
+  traffic_status?: string | null;
+  waiting_time?: number | null;
+  logistics_delay_reason?: string | null;
+  asset_utilization?: number | null;
+  demand_forecast?: number | null;
+  is_delayed?: boolean;
+  latest_telemetry_timestamp?: string | null;
+}
+
+export interface TruckTelemetry {
+  id: string;
+  truck_id?: string | null;
+  source_timestamp: string;
+  source_asset_id: string;
+  source_latitude: number;
+  source_longitude: number;
+  display_latitude?: number | null;
+  display_longitude?: number | null;
+  inventory_level?: number | null;
+  shipment_status?: string | null;
+  temperature?: number | null;
+  humidity?: number | null;
+  traffic_status?: string | null;
+  waiting_time?: number | null;
+  logistics_delay_reason?: string | null;
+  asset_utilization?: number | null;
+  demand_forecast?: number | null;
+  logistics_delay: boolean;
+  user_transaction_amount?: number | null;
+  user_purchase_frequency?: number | null;
+  created_at?: string;
 }
 
 export interface LogisticsAlert {
@@ -42,7 +101,34 @@ export interface LogisticsAlert {
 
 export interface TrackingSearchResponse {
   truck: TruckPosition;
+  shipment?: ShipmentInfo | null;
+  route?: RoutePoint[];
+  route_waypoints?: [number, number][];
+  corridor_name?: string | null;
+  distance_km?: number | null;
   alerts: LogisticsAlert[];
+  eta?: string | null;
+  original_eta?: string | null;
+  is_delayed?: boolean;
+  status?: string;
+}
+
+export interface LogisticsAnalyticsSummary {
+  total_tracked_assets: number;
+  in_transit_count: number;
+  delivered_count: number;
+  delayed_count: number;
+  logistics_delay_rate: number;
+  average_waiting_time: number;
+  average_asset_utilization: number;
+  average_temperature: number;
+  average_humidity: number;
+  traffic_status_distribution: Record<string, number>;
+  delay_reason_distribution: Record<string, number>;
+  total_inventory: number;
+  average_demand_forecast: number;
+  total_transaction_amount: number;
+  average_purchase_frequency: number;
 }
 
 export interface YardSlotResponse {

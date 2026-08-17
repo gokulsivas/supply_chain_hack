@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from app.core.config import settings
 
-
+#object relationship mapping
 # ── Engine ────────────────────────────────────────────────────────
 engine = create_engine(
     settings.DATABASE_URL,

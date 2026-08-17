@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
+import { motion } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { 
@@ -14,7 +15,9 @@ import {
   AlertTriangle, 
   RefreshCw, 
   Eye, 
-  ExternalLink 
+  ExternalLink,
+  Building2,
+  ArrowUpRight
 } from "lucide-react";
 
 interface Invoice {
@@ -68,23 +71,23 @@ export default function InvoicesPage() {
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
-  const loadInvoices = async () => {
+  const loadInvoices = useCallback(async () => {
     setIsLoading(true);
 
     // Read any dynamic POs created during the demo
-    let localPOs: any[] = [];
+    let localPOs: Record<string, unknown>[] = [];
     try {
       const stored = localStorage.getItem("local_purchase_orders");
       if (stored) localPOs = JSON.parse(stored);
     } catch {}
 
     const dynamicallyGeneratedInvoices: Invoice[] = localPOs.map((po, index) => {
-      const poNum = po.po_code || po.po_number || po.id || `PO-2026-000${index + 3}`;
+      const poNum = String(po.po_code || po.po_number || po.id || `PO-2026-000${index + 3}`);
       const invNum = poNum.replace("PO-", "INV-");
       return {
         id: invNum.toLowerCase(),
         invoice_number: invNum,
-        supplier_name: po.supplier_name || po.supplier || "Prime Systems",
+        supplier_name: String(po.supplier_name || po.supplier || "Prime Systems"),
         po_number: poNum,
         ocr_confidence: 99.0,
         total_amount: Number(po.amount || po.total_amount || 2500000),
@@ -97,15 +100,15 @@ export default function InvoicesPage() {
     try {
       const res = await axios.get(`${API_BASE}/finance/invoices`);
       if (Array.isArray(res.data) && res.data.length > 0) {
-        apiInvoices = res.data.map((item: any) => ({
-          id: item.id || item.invoice_number,
-          invoice_number: item.invoice_number || item.id,
-          supplier_name: typeof item.supplier === "object" ? item.supplier.name : item.supplier_name || "Prime Systems",
-          po_number: item.po_number || item.po_code || "PO-2026-0001",
-          ocr_confidence: item.ocr_confidence || 99.0,
+        apiInvoices = res.data.map((item: Record<string, unknown>) => ({
+          id: String(item.id || item.invoice_number),
+          invoice_number: String(item.invoice_number || item.id),
+          supplier_name: typeof item.supplier === "object" && item.supplier !== null ? String((item.supplier as Record<string, unknown>).name) : String(item.supplier_name || "Prime Systems"),
+          po_number: String(item.po_number || item.po_code || "PO-2026-0001"),
+          ocr_confidence: Number(item.ocr_confidence || 99.0),
           total_amount: Number(item.total_amount || item.amount || 0),
-          matching_status: item.matching_status || (item.status === "MATCHED" ? "MATCHED" : "DISCREPANCY"),
-          payment_status: item.payment_status || "PENDING",
+          matching_status: (item.matching_status as "MATCHED" | "DISCREPANCY" | "PENDING") || (item.status === "MATCHED" ? "MATCHED" : "DISCREPANCY"),
+          payment_status: (item.payment_status as "PENDING" | "PAID") || "PENDING",
         }));
       }
     } catch {}
@@ -127,11 +130,69 @@ export default function InvoicesPage() {
 
     setInvoices(Array.from(combinedMap.values()));
     setIsLoading(false);
-  };
+  }, [API_BASE]);
 
   useEffect(() => {
-    loadInvoices();
-  }, []);
+    let isMounted = true;
+    const fetchAsync = async () => {
+      let localPOs: Record<string, unknown>[] = [];
+      try {
+        const stored = localStorage.getItem("local_purchase_orders");
+        if (stored) localPOs = JSON.parse(stored);
+      } catch {}
+
+      const dynamicallyGeneratedInvoices: Invoice[] = localPOs.map((po, index) => {
+        const poNum = String(po.po_code || po.po_number || po.id || `PO-2026-000${index + 3}`);
+        const invNum = poNum.replace("PO-", "INV-");
+        return {
+          id: invNum.toLowerCase(),
+          invoice_number: invNum,
+          supplier_name: String(po.supplier_name || po.supplier || "Prime Systems"),
+          po_number: poNum,
+          ocr_confidence: 99.0,
+          total_amount: Number(po.amount || po.total_amount || 2500000),
+          matching_status: "MATCHED",
+          payment_status: "PENDING",
+        };
+      });
+
+      let apiInvoices: Invoice[] = [];
+      try {
+        const res = await axios.get(`${API_BASE}/finance/invoices`);
+        if (Array.isArray(res.data) && res.data.length > 0) {
+          apiInvoices = res.data.map((item: Record<string, unknown>) => ({
+            id: String(item.id || item.invoice_number),
+            invoice_number: String(item.invoice_number || item.id),
+            supplier_name: typeof item.supplier === "object" && item.supplier !== null ? String((item.supplier as Record<string, unknown>).name) : String(item.supplier_name || "Prime Systems"),
+            po_number: String(item.po_number || item.po_code || "PO-2026-0001"),
+            ocr_confidence: Number(item.ocr_confidence || 99.0),
+            total_amount: Number(item.total_amount || item.amount || 0),
+            matching_status: (item.matching_status as "MATCHED" | "DISCREPANCY" | "PENDING") || (item.status === "MATCHED" ? "MATCHED" : "DISCREPANCY"),
+            payment_status: (item.payment_status as "PENDING" | "PAID") || "PENDING",
+          }));
+        }
+      } catch {}
+
+      const combinedMap = new Map<string, Invoice>();
+      dynamicallyGeneratedInvoices.forEach((inv) => combinedMap.set(inv.invoice_number, inv));
+      BASE_INVOICES.forEach((inv) => {
+        if (!combinedMap.has(inv.invoice_number)) combinedMap.set(inv.invoice_number, inv);
+      });
+      apiInvoices.forEach((inv) => {
+        if (!combinedMap.has(inv.invoice_number)) combinedMap.set(inv.invoice_number, inv);
+      });
+
+      if (isMounted) {
+        setInvoices(Array.from(combinedMap.values()));
+      }
+    };
+
+    fetchAsync();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [API_BASE]);
 
   const totalAmount = invoices.reduce((acc, inv) => acc + inv.total_amount, 0);
   const matchedCount = invoices.filter((i) => i.matching_status === "MATCHED").length;
@@ -139,15 +200,20 @@ export default function InvoicesPage() {
 
   return (
     <AppShell title="Invoices">
-      <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full py-6">
+      <motion.div 
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+        className="flex flex-col gap-6 max-w-7xl mx-auto w-full py-6 px-4 sm:px-6 pb-12"
+      >
         
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
               Digital Invoice Ingestion &amp; OCR Processing
             </h1>
-            <p className="text-sm text-slate-500">
+            <p className="text-xs text-muted-foreground mt-0.5">
               Autonomous OCR parsing, PO metadata binding, and line-item level reconciliation.
             </p>
           </div>
@@ -157,176 +223,193 @@ export default function InvoicesPage() {
               size="sm"
               onClick={loadInvoices}
               disabled={isLoading}
-              className="text-xs"
+              className="text-xs h-8 px-3 shadow-2xs font-semibold gap-1.5"
             >
-              <RefreshCw className={`size-3.5 mr-1.5 ${isLoading ? "animate-spin" : ""}`} /> Refresh
+              <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} /> Refresh
             </Button>
             <Button
               size="sm"
               onClick={() => router.push("/finance/matching")}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold h-8 px-3.5 shadow-xs flex items-center gap-1.5"
             >
-              Go to 3-Way Matcher <ExternalLink className="size-3.5 ml-1.5" />
+              Go to 3-Way Matcher <ExternalLink className="size-3.5" />
             </Button>
           </div>
         </div>
 
         {/* Metrics Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="border-slate-200 shadow-sm bg-white">
-            <CardContent className="p-5 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Invoiced Amount</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1 font-mono">
+          <Card className="border border-border/80 shadow-xs bg-card hover:shadow-sm transition-shadow">
+            <CardContent className="p-4.5 flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Total Invoiced Amount</p>
+                <p className="text-2xl sm:text-3xl font-extrabold text-foreground font-mono">
                   ₹{totalAmount.toLocaleString("en-IN")}
                 </p>
-                <p className="text-[11px] text-slate-400 mt-0.5">{invoices.length} Total Extracted Documents</p>
+                <p className="text-[11px] text-muted-foreground font-medium">{invoices.length} Total Extracted Documents</p>
               </div>
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-slate-600">
-                <FileText className="size-6" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-slate-200 shadow-sm bg-white">
-            <CardContent className="p-5 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Avg OCR Confidence</p>
-                <p className="text-2xl font-bold text-blue-600 mt-1 font-mono">99.0%</p>
-                <p className="text-[11px] text-emerald-600 font-medium mt-0.5">Autonomous Extraction</p>
-              </div>
-              <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 text-blue-600">
-                <ScanLine className="size-6" />
+              <div className="p-3 bg-muted/60 rounded-none border border-border/60 text-foreground shrink-0">
+                <FileText className="size-5" />
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm bg-white">
-            <CardContent className="p-5 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">3-Way Matched</p>
-                <p className="text-2xl font-bold text-emerald-600 mt-1 font-mono">{matchedCount}</p>
-                <p className="text-[11px] text-emerald-600 font-medium mt-0.5">Ready / Released</p>
+          <Card className="border border-border/80 shadow-xs bg-card hover:shadow-sm transition-shadow">
+            <CardContent className="p-4.5 flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Avg OCR Confidence</p>
+                <p className="text-2xl sm:text-3xl font-extrabold text-blue-600 dark:text-blue-400 font-mono">99.0%</p>
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Autonomous Extraction</p>
               </div>
-              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-emerald-600">
-                <CheckCircle2 className="size-6" />
+              <div className="p-3 bg-blue-500/10 rounded-none border border-blue-500/20 text-blue-600 dark:text-blue-400 shrink-0">
+                <ScanLine className="size-5" />
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm bg-white">
-            <CardContent className="p-5 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Discrepancies / Anomalies</p>
-                <p className="text-2xl font-bold text-rose-600 mt-1 font-mono">{discrepancyCount}</p>
-                <p className="text-[11px] text-rose-600 font-medium mt-0.5">Requires AP Intervention</p>
+          <Card className="border border-border/80 shadow-xs bg-card hover:shadow-sm transition-shadow">
+            <CardContent className="p-4.5 flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">3-Way Matched</p>
+                <p className="text-2xl sm:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">{matchedCount}</p>
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Ready / Released</p>
               </div>
-              <div className="p-3 bg-rose-50 rounded-xl border border-rose-100 text-rose-600">
-                <AlertTriangle className="size-6" />
+              <div className="p-3 bg-emerald-500/10 rounded-none border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0">
+                <CheckCircle2 className="size-5" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border border-border/80 shadow-xs bg-card hover:shadow-sm transition-shadow">
+            <CardContent className="p-4.5 flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Discrepancies / Anomalies</p>
+                <p className="text-2xl sm:text-3xl font-extrabold text-rose-600 dark:text-rose-400 font-mono">{discrepancyCount}</p>
+                <p className="text-[11px] text-rose-600 dark:text-rose-400 font-medium">Requires AP Intervention</p>
+              </div>
+              <div className="p-3 bg-rose-500/10 rounded-none border border-rose-500/20 text-rose-600 dark:text-rose-400 shrink-0">
+                <AlertTriangle className="size-5" />
               </div>
             </CardContent>
           </Card>
         </div>
 
         {/* Invoice Table */}
-        <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
-          <CardHeader className="p-4 border-b bg-slate-50/50">
-            <CardTitle className="text-sm font-bold text-slate-800">Ingested Supplier Invoices</CardTitle>
-            <p className="text-xs text-slate-500">
+        <Card className="border border-border/80 shadow-xs bg-card rounded-none overflow-hidden">
+          <CardHeader className="p-4 border-b border-border/60 bg-muted/40">
+            <CardTitle className="text-sm font-bold text-foreground">Ingested Supplier Invoices</CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
               Digitized records from incoming supplier shipments and OCR pipelines.
-            </p>
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="divide-y divide-slate-100 text-xs">
-              
-              {/* Header */}
-              <div className="grid grid-cols-12 px-5 py-3 font-semibold text-slate-700 bg-slate-50/75 text-[11px]">
-                <div className="col-span-2">INVOICE #</div>
-                <div className="col-span-2">SUPPLIER</div>
-                <div className="col-span-2">LINKED PO</div>
-                <div className="col-span-1">OCR CONFIDENCE</div>
-                <div className="col-span-2">TOTAL AMOUNT</div>
-                <div className="col-span-1">MATCHING STATUS</div>
-                <div className="col-span-1">PAYMENT</div>
-                <div className="col-span-1 text-right">ACTIONS</div>
-              </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-muted-foreground">
+                <thead className="bg-muted/60 text-[11px] uppercase font-semibold text-foreground border-b border-border/60">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">Invoice #</th>
+                    <th className="px-4 py-3 font-semibold">Supplier</th>
+                    <th className="px-4 py-3 font-semibold">Linked PO</th>
+                    <th className="px-4 py-3 font-semibold">OCR Confidence</th>
+                    <th className="px-4 py-3 font-semibold">Total Amount</th>
+                    <th className="px-4 py-3 font-semibold">Matching Status</th>
+                    <th className="px-4 py-3 font-semibold">Payment</th>
+                    <th className="px-4 py-3 text-right font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/40 font-normal">
+                  {invoices.map((inv) => {
+                    const isMatched = inv.matching_status === "MATCHED";
 
-              {/* Rows */}
-              {invoices.map((inv) => {
-                const isMatched = inv.matching_status === "MATCHED";
-
-                return (
-                  <div
-                    key={inv.invoice_number}
-                    className="grid grid-cols-12 px-5 py-3.5 items-center hover:bg-slate-50/50 transition-colors"
-                  >
-                    <div className="col-span-2 font-mono font-bold text-slate-900">
-                      {inv.invoice_number}
-                    </div>
-
-                    <div className="col-span-2 flex items-center gap-1.5 font-medium text-slate-800">
-                      <span className="text-slate-400">🏢</span>
-                      {inv.supplier_name}
-                    </div>
-
-                    <div className="col-span-2 font-mono text-blue-600 hover:underline cursor-pointer">
-                      {inv.po_number}
-                    </div>
-
-                    <div className="col-span-1 flex items-center gap-2">
-                      <div className="w-12 h-1.5 bg-emerald-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-emerald-500 w-full" />
-                      </div>
-                      <span className="font-mono text-slate-600 font-semibold">{inv.ocr_confidence}%</span>
-                    </div>
-
-                    <div className="col-span-2 font-mono font-bold text-slate-900">
-                      ₹{inv.total_amount.toLocaleString("en-IN")}
-                    </div>
-
-                    <div className="col-span-1">
-                      <Badge
-                        className={
-                          isMatched
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] whitespace-nowrap"
-                            : "bg-rose-50 text-rose-700 border-rose-200 text-[10px] whitespace-nowrap"
-                        }
+                    return (
+                      <tr
+                        key={inv.invoice_number}
+                        className="hover:bg-muted/30 transition-colors"
                       >
-                        {isMatched ? "100% MATCH" : "DISCREPANCY"}
-                      </Badge>
-                    </div>
+                        <td className="px-4 py-3 font-mono font-bold text-foreground text-xs">
+                          {inv.invoice_number}
+                        </td>
 
-                    <div className="col-span-1">
-                      <span className="text-[11px] font-mono text-slate-500 uppercase font-semibold">
-                        {inv.payment_status}
-                      </span>
-                    </div>
+                        <td className="px-4 py-3 font-medium text-foreground">
+                          <div className="flex items-center gap-1.5">
+                            <Building2 className="size-3.5 text-muted-foreground shrink-0" />
+                            <span>{inv.supplier_name}</span>
+                          </div>
+                        </td>
 
-                    <div className="col-span-1 text-right flex items-center justify-end gap-1.5">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => router.push(`/finance/matching?invoiceId=${inv.invoice_number}`)}
-                        className="h-7 px-2 text-[11px] text-slate-700"
-                      >
-                        <Eye className="size-3 mr-1" /> View OCR
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => router.push(`/finance/matching?invoiceId=${inv.invoice_number}`)}
-                        className="h-7 px-2 text-[11px] bg-slate-900 hover:bg-slate-800 text-white font-semibold"
-                      >
-                        Match ↗
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/finance/matching?invoiceId=${inv.invoice_number}`)}
+                            className="font-mono text-primary hover:underline font-semibold text-left inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            {inv.po_number}
+                            <ArrowUpRight className="size-3 opacity-70" />
+                          </button>
+                        </td>
 
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-10 h-1.5 bg-muted rounded-full overflow-hidden shrink-0">
+                              <div 
+                                className="h-full bg-emerald-500 rounded-full" 
+                                style={{ width: `${Math.min(inv.ocr_confidence, 100)}%` }} 
+                              />
+                            </div>
+                            <span className="font-mono text-[11px] font-medium text-muted-foreground">{inv.ocr_confidence}%</span>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-3 font-mono font-bold text-foreground text-xs">
+                          ₹{inv.total_amount.toLocaleString("en-IN")}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <Badge
+                            className={
+                              isMatched
+                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold whitespace-nowrap"
+                                : "bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/30 text-[10px] font-semibold whitespace-nowrap"
+                            }
+                          >
+                            {isMatched ? "100% MATCH" : "DISCREPANCY"}
+                          </Badge>
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <span className="text-[11px] font-mono text-muted-foreground uppercase font-semibold">
+                            {inv.payment_status}
+                          </span>
+                        </td>
+
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => router.push(`/finance/matching?invoiceId=${inv.invoice_number}`)}
+                              className="h-7 px-2.5 text-[11px] text-foreground font-medium"
+                            >
+                              <Eye className="size-3 mr-1" /> View OCR
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => router.push(`/finance/matching?invoiceId=${inv.invoice_number}`)}
+                              className="h-7 px-2.5 text-[11px] bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-2xs"
+                            >
+                              Match ↗
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </CardContent>
         </Card>
-      </div>
+      </motion.div>
     </AppShell>
   );
-}
+}

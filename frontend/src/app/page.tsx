@@ -1,26 +1,19 @@
 "use client";
 
-/**
- * Root page — client-side redirect only. No visual output.
- *
- * Unauthenticated → /login
- * Authenticated   → /dashboard
- *
- * The loading state prevents a flash while the cookie is being read.
- */
-
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
+import { LandingPage } from "@/components/landing/LandingPage";
 
 export default function RootPage() {
   const router = useRouter();
   const { isLoading, isAuthenticated } = useAuth();
 
   useEffect(() => {
-    if (isLoading) return;
-    router.replace(isAuthenticated ? "/dashboard" : "/login");
+    if (!isLoading && isAuthenticated) {
+      router.replace("/dashboard");
+    }
   }, [isLoading, isAuthenticated, router]);
 
-  return null;
+  return <LandingPage />;
 }

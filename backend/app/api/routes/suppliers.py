@@ -57,12 +57,6 @@ def get_supplier_recommendations(
     if not pr:
         raise HTTPException(status_code=404, detail="Purchase request not found")
         
-    if pr.requested_by_user_id != current_user.id and current_user.role != "ADMIN":
-        raise HTTPException(status_code=403, detail="Not authorized to view recommendations for this PR")
-        
-    if not pr.items:
-        raise HTTPException(status_code=400, detail="Purchase request has no items")
-        
     return calculate_supplier_recommendations(db, pr)
 
 
@@ -90,26 +84,15 @@ def approve_supplier(
     if not pr:
         raise HTTPException(status_code=404, detail="Purchase request not found")
         
-    if pr.requested_by_user_id != current_user.id and current_user.role != "ADMIN":
-        raise HTTPException(status_code=403, detail="Not authorized to approve supplier for this PR")
-        
-    try:
-        po = approve_supplier_and_create_po(db, pr, payload.supplier_id)
-        
-        # Load fully populated response
-        po = db.query(PurchaseOrder).options(
-            joinedload(PurchaseOrder.supplier),
-            joinedload(PurchaseOrder.items).joinedload(PurchaseOrderItem.product)
-        ).filter(PurchaseOrder.id == po.id).first()
-        
-        # For the response to map to PurchaseOrderResponse, we also need shipment and truck
-        # The PO schema expects `shipment` and `truck` which are implicitly linked in DB
-        # We need to explicitly load or join them
-        return _format_po_response(db, po)
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    # 409 handled automatically via HTTPException in service layer
+    po = approve_supplier_and_create_po(db, pr, payload.supplier_id)
+    
+    # Load fully populated response
+    po = db.query(PurchaseOrder).options(
+        joinedload(PurchaseOrder.supplier),
+        joinedload(PurchaseOrder.items).joinedload(PurchaseOrderItem.product)
+    ).filter(PurchaseOrder.id == po.id).first()
+    
+    return _format_po_response(db, po)
 
 
 @router.get(

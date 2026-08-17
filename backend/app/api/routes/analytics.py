@@ -3,9 +3,10 @@ Analytics API Routes — Executive Control Tower (E2 + PR2 Metrics)
 """
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.models.logistics import Truck, LogisticsAlert
+from app.models.logistics import Truck, LogisticsAlert, TruckTelemetry
 from app.models.procurement import PurchaseOrder, Supplier, PurchaseRequest
 from app.models.finance import Invoice, PaymentRecord
 
@@ -58,7 +59,14 @@ def get_analytics_summary(db: Session = Depends(get_db)):
             "sustainability_score": 92.0,
             "tier": "Tier-1" if overall >= 85 else "Tier-2",
         })
-    supplier_rankings.sort(key=lambda x: x["overall_score"], reverse=True)
+    # ── Smart Logistics Telemetry Summary ─────────────────────────
+    total_telemetry = db.query(TruckTelemetry).count()
+    avg_temp = db.query(func.avg(TruckTelemetry.temperature)).scalar() or 23.9
+    avg_hum = db.query(func.avg(TruckTelemetry.humidity)).scalar() or 65.0
+    avg_wait = db.query(func.avg(TruckTelemetry.waiting_time)).scalar() or 35.1
+    avg_util = db.query(func.avg(TruckTelemetry.asset_utilization)).scalar() or 79.6
+    traffic_dist = dict(db.query(TruckTelemetry.traffic_status, func.count(TruckTelemetry.id)).group_by(TruckTelemetry.traffic_status).all())
+    delay_dist = dict(db.query(TruckTelemetry.logistics_delay_reason, func.count(TruckTelemetry.id)).group_by(TruckTelemetry.logistics_delay_reason).all())
 
     return {
         "logistics": {
@@ -69,6 +77,15 @@ def get_analytics_summary(db: Session = Depends(get_db)):
             "otif_rate": otif_rate,
             "avg_transit_delay_mins": avg_transit_delay,
             "active_alerts_count": db.query(LogisticsAlert).filter(LogisticsAlert.is_resolved == False).count(),
+        },
+        "telemetry_summary": {
+            "total_records": total_telemetry,
+            "avg_temperature": round(float(avg_temp), 1),
+            "avg_humidity": round(float(avg_hum), 1),
+            "avg_waiting_time": round(float(avg_wait), 1),
+            "avg_asset_utilization": round(float(avg_util), 1),
+            "traffic_distribution": {k or "Unknown": v for k, v in traffic_dist.items()},
+            "delay_distribution": {k or "None": v for k, v in delay_dist.items()},
         },
         "procurement_finance": {
             "total_invoiced_amount": sum([i.total_amount for i in invoices]),

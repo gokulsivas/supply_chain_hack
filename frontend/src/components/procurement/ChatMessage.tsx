@@ -13,32 +13,46 @@ export function ChatMessage({ role, content }: ChatMessageProps) {
   return (
     <div
       className={cn(
-        "flex w-full gap-4 p-4",
-        isUser && "bg-transparent",
-        !isUser && !isSystem && "bg-muted/50 rounded-lg",
-        isSystem && "bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded-lg"
+        "flex w-full gap-3 transition-opacity duration-200",
+        isUser ? "justify-end" : "justify-start"
       )}
     >
-      <div className="flex-shrink-0 mt-1">
-        {isUser ? (
-          <div className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            <User className="size-4" />
-          </div>
-        ) : isSystem ? (
-          <div className="flex size-8 items-center justify-center rounded-full bg-blue-500/20 text-blue-700 dark:text-blue-400">
-            <Info className="size-4" />
-          </div>
-        ) : (
-          <div className="flex size-8 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
-            <Bot className="size-4" />
-          </div>
-        )}
-      </div>
-      <div className="flex-1 space-y-2 overflow-hidden px-1">
-        <div className="prose prose-sm dark:prose-invert break-words">
-          <p className="leading-relaxed whitespace-pre-wrap">{content}</p>
+      {!isUser && (
+        <div className="shrink-0 mt-0.5">
+          {isSystem ? (
+            <div className="flex size-7 items-center justify-center bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+              <Info className="size-3.5" />
+            </div>
+          ) : (
+            <div className="flex size-7 items-center justify-center bg-primary/10 text-primary border border-primary/20">
+              <Bot className="size-3.5" />
+            </div>
+          )}
         </div>
+      )}
+
+      <div
+        className={cn(
+          "relative max-w-[85%] text-xs leading-relaxed break-words",
+          isUser &&
+            "bg-primary text-primary-foreground border border-primary/40 px-4 py-2.5 shadow-xs font-medium",
+          !isUser &&
+            !isSystem &&
+            "bg-muted/60 text-foreground border border-border px-4 py-2.5 shadow-xs",
+          isSystem &&
+            "bg-blue-500/10 text-blue-900 dark:text-blue-300 border border-blue-500/20 px-4 py-2.5 font-medium"
+        )}
+      >
+        <p className="whitespace-pre-wrap">{content}</p>
       </div>
+
+      {isUser && (
+        <div className="shrink-0 mt-0.5">
+          <div className="flex size-7 items-center justify-center bg-primary text-primary-foreground shadow-xs">
+            <User className="size-3.5" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

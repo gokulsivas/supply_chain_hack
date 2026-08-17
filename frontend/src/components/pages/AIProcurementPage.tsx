@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Send, Loader2, Bot } from "lucide-react";
+import { Send, Loader2, Bot, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -39,17 +39,20 @@ export function AIProcurementPage() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [activeExtraction, setActiveExtraction] = useState<ExtractionResultResponse | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const [recentRequests, setRecentRequests] = useState<any[]>([]);
+  const [recentRequests, setRecentRequests] = useState<Record<string, unknown>[]>([]);
 
   // Request counter to avoid race conditions
   const requestIdCounter = useRef(0);
+  const messageIdCounter = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const getNextMessageId = () => `msg-${++messageIdCounter.current}`;
 
   useEffect(() => {
     let isMounted = true;
     listPurchaseRequests().then((data) => {
       if (isMounted && Array.isArray(data)) {
-        setRecentRequests(data);
+        setRecentRequests(data as unknown as Record<string, unknown>[]);
       }
     }).catch(() => {});
     return () => {
@@ -72,7 +75,7 @@ export function AIProcurementPage() {
 
     const currentReqId = ++requestIdCounter.current;
 
-    const userMsg: Message = { id: Date.now().toString(), role: "user", content: capturedInput };
+    const userMsg: Message = { id: getNextMessageId(), role: "user", content: capturedInput };
     setMessages(prev => [...prev, userMsg]);
     setIsExtracting(true);
 
@@ -104,7 +107,7 @@ export function AIProcurementPage() {
       setActiveExtraction(result);
       
       const assistantMsg: Message = {
-        id: Date.now().toString(),
+        id: getNextMessageId(),
         role: "assistant",
         content: result.is_valid 
           ? `I extracted the details for ${result.extracted?.item || 'your requisition'}. Please review before creating the purchase request.`
@@ -115,7 +118,7 @@ export function AIProcurementPage() {
       if (currentReqId !== requestIdCounter.current) return;
 
       const errorMsg: Message = {
-        id: Date.now().toString(),
+        id: getNextMessageId(),
         role: "system",
         content: isApiError(err) ? err.detail : "Failed to connect to the assistant. Please try again."
       };
@@ -136,7 +139,7 @@ export function AIProcurementPage() {
     setMessages(prev => [
       ...prev,
       {
-        id: Date.now().toString(),
+        id: getNextMessageId(),
         role: "system",
         content: `Purchase request ${pr.request_code} has been successfully validated. Taking you to Supplier Intelligence...`
       }
@@ -147,45 +150,73 @@ export function AIProcurementPage() {
   };
 
   return (
-    <AppShell title="AI procurement assistant">
-      <div className="flex flex-col gap-6 max-w-[1440px] mx-auto w-full pb-12">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Conversational requisition</h1>
-          <p className="text-muted-foreground">Describe what you need; the assistant extracts and validates a purchase request.</p>
+    <AppShell title="AI Procurement Assistant">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col gap-6">
+        
+        {/* Page Header with Proper Offset and Crisp Typography */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Conversational Requisition</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Describe what you need; the assistant extracts and validates a purchase request.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+              <span className="size-1.5 bg-emerald-500 animate-pulse" />
+              Autonomous Agent Ready
+            </span>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:h-[calc(100vh-200px)] lg:min-h-[600px]">
+        {/* Balanced Workspace Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           
-          {/* Chat Interface Column */}
-          <div className="flex flex-col rounded-xl border border-border bg-card overflow-hidden shadow-xs lg:h-full">
-            <div className="bg-muted px-4 py-3 border-b flex items-center gap-2">
-              <Bot className="size-5 text-primary" />
-              <h2 className="font-semibold">Procurement Assistant</h2>
+          {/* Left Column: AI Assistant Chat Panel */}
+          <div className="lg:col-span-7 flex flex-col border border-border bg-card shadow-xs min-h-[580px] lg:min-h-[640px] max-h-[calc(100vh-190px)] overflow-hidden">
+            
+            {/* Panel Header */}
+            <div className="bg-muted/40 px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="flex size-7 items-center justify-center bg-primary/10 text-primary border border-primary/20">
+                  <Bot className="size-4" />
+                </div>
+                <div>
+                  <h2 className="text-xs font-bold text-foreground">Procurement Assistant</h2>
+                  <p className="text-[10px] text-muted-foreground">Natural language to purchase request</p>
+                </div>
+              </div>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {/* Conversation History Viewport */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
               {messages.map((msg) => (
                 <ChatMessage key={msg.id} role={msg.role} content={msg.content} />
               ))}
               
               {isExtracting && (
-                <div className="flex items-center gap-3 text-muted-foreground p-4">
-                  <Loader2 className="size-4 animate-spin" />
-                  <span className="text-sm">Extracting requisition details...</span>
+                <div className="flex items-center gap-2.5 text-muted-foreground p-3 bg-muted/30 border border-border">
+                  <Loader2 className="size-4 animate-spin text-primary" />
+                  <span className="text-xs font-medium">Extracting requisition details...</span>
                 </div>
               )}
               <div ref={messagesEndRef} />
             </div>
 
-            <div className="p-4 border-t bg-muted/20">
-              <div className="flex flex-wrap gap-2 mb-3">
+            {/* Suggestions & Single Aligned Composer */}
+            <div className="p-3.5 sm:p-4 border-t border-border bg-muted/20 shrink-0">
+              <div className="flex items-center gap-1.5 mb-2">
+                <Sparkles className="size-3 text-primary" />
+                <span className="text-[11px] font-semibold text-muted-foreground">Quick Suggestions</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 mb-3">
                 {SUGGESTIONS.map((suggestion, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => handleSend(suggestion)}
                     disabled={isExtracting}
-                    className="text-xs bg-muted hover:bg-primary/10 hover:text-primary transition-colors px-2.5 py-1.5 rounded-full border border-border text-muted-foreground text-left disabled:opacity-50"
+                    className="text-[11px] font-medium bg-background hover:bg-primary/5 hover:border-primary/40 hover:text-primary transition-all duration-150 px-2.5 py-1.5 border border-border text-muted-foreground text-left disabled:opacity-50 shadow-2xs cursor-pointer"
                   >
                     &quot;{suggestion}&quot;
                   </button>
@@ -193,36 +224,41 @@ export function AIProcurementPage() {
               </div>
               <form 
                 onSubmit={(e) => { e.preventDefault(); handleSend(input); }} 
-                className="flex gap-2"
+                className="flex gap-2 items-stretch"
               >
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="Type your request here (e.g. I need 12 mobile phones for Baksa by next Tuesday)..."
-                  className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSend(input);
-                    }
-                  }}
-                  disabled={isExtracting}
-                />
+                <div className="relative flex-1">
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder="Type your request here (e.g. I need 12 mobile phones for Baksa by next Tuesday)..."
+                    className="flex min-h-[52px] h-[52px] w-full border border-input bg-background px-3 py-2 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50 resize-none shadow-xs transition-colors"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSend(input);
+                      }
+                    }}
+                    disabled={isExtracting}
+                  />
+                </div>
                 <Button 
                   type="submit" 
                   size="icon" 
                   disabled={!input.trim() || isExtracting}
-                  className="h-auto w-12 shrink-0 self-stretch"
+                  className="h-[52px] w-12 shrink-0 bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs flex items-center justify-center transition-all cursor-pointer"
                 >
                   <Send className="size-4" />
                   <span className="sr-only">Send</span>
                 </Button>
               </form>
+              <p className="text-[10px] text-muted-foreground/80 mt-1.5 pl-0.5">
+                Press <kbd className="font-mono bg-muted px-1 py-0.5 text-[9px] border border-border">Enter</kbd> to submit, <kbd className="font-mono bg-muted px-1 py-0.5 text-[9px] border border-border">Shift + Enter</kbd> for new line
+              </p>
             </div>
           </div>
 
-          {/* Action Column */}
-          <div className="flex flex-col gap-6 lg:h-full lg:overflow-y-auto lg:pr-2 pb-4">
+          {/* Right Rail: Action Review & Recent Requisitions */}
+          <div className="lg:col-span-5 flex flex-col gap-5 items-stretch">
             <AnimatePresence mode="popLayout">
               {activeExtraction && (
                 <motion.div
@@ -240,7 +276,7 @@ export function AIProcurementPage() {
               )}
             </AnimatePresence>
 
-            <div className="flex-1">
+            <div className="w-full">
               <RecentRequests requests={recentRequests} refreshTrigger={refreshTrigger} />
             </div>
           </div>

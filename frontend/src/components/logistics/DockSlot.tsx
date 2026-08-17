@@ -26,29 +26,29 @@ export function DockSlot({ dock, action, className }: DockSlotProps) {
   return (
     <div
       className={cn(
-        "flex flex-col sm:flex-row sm:items-center gap-4 rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-md",
+        "flex flex-col sm:flex-row sm:items-center gap-4 rounded-none border border-border/80 bg-card p-4 transition-all hover:shadow-2xs",
         className
       )}
     >
       <div className="flex items-center justify-between sm:w-48 sm:shrink-0 gap-2">
-        <h3 className="font-semibold text-foreground text-lg">{dock.dock_code}</h3>
+        <h3 className="font-mono font-bold text-foreground text-base">{dock.dock_code}</h3>
         <StatusBadge 
           status={getStatusVariant(dock.status)} 
           label={dock.status} 
         />
       </div>
       
-      <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
         <div className="flex items-center gap-2 text-muted-foreground">
-          <Package className="size-4 shrink-0" />
+          <Package className="size-3.5 shrink-0 text-muted-foreground/70" />
           <span className="truncate" title={dock.suitable_load_types}>
             {dock.suitable_load_types}
           </span>
         </div>
         
         <div className="flex items-center gap-2 text-muted-foreground">
-          <Truck className="size-4 shrink-0" />
-          <span className={cn("font-medium truncate", hasRealAllocation ? "text-foreground" : "")}>
+          <Truck className="size-3.5 shrink-0 text-muted-foreground/70" />
+          <span className={cn("font-medium truncate", hasRealAllocation ? "font-mono font-bold text-primary" : "text-muted-foreground/70")}>
             {hasRealAllocation ? displayTruckCode : "No truck assigned"}
           </span>
         </div>
@@ -62,3 +62,4 @@ export function DockSlot({ dock, action, className }: DockSlotProps) {
     </div>
   );
 }
+

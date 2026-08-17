@@ -11,7 +11,7 @@ interface TrackingAlertsProps {
 export function TrackingAlerts({ alerts }: TrackingAlertsProps) {
   if (!alerts || alerts.length === 0) {
     return (
-      <div className="bg-card border border-border rounded-xl p-5 h-full">
+      <div className="bg-card border border-border rounded-none p-5 h-full">
         <h3 className="text-sm font-semibold tracking-tight text-foreground border-b border-border pb-2 mb-4">
           Active Alerts
         </h3>
@@ -26,7 +26,7 @@ export function TrackingAlerts({ alerts }: TrackingAlertsProps) {
   }
 
   return (
-    <div className="bg-card border border-border rounded-xl p-5 h-full flex flex-col">
+    <div className="bg-card border border-border rounded-none p-5 h-full flex flex-col">
       <h3 className="text-sm font-semibold tracking-tight text-foreground border-b border-border pb-2 mb-4 flex items-center gap-2">
         <Bell className="size-4 text-muted-foreground" aria-hidden="true" />
         Active Alerts

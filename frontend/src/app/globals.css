@@ -47,14 +47,14 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
 
-  /* Radius scale */
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  /* Radius scale — Sharp cornered boxes */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
 
   /* Semantic status colours (colour + text + icon — never colour alone) */
   --color-status-success: oklch(0.56 0.18 142);
@@ -69,18 +69,18 @@
 
 /* ─── Light mode ────────────────────────────────────────────────── */
 :root {
-  /* Enterprise indigo/slate palette */
-  --background: oklch(0.98 0.004 264);
-  --foreground: oklch(0.16 0.01 264);
+  /* Enterprise electric indigo / slate palette matching Landing Page */
+  --background: oklch(0.985 0.004 264);
+  --foreground: oklch(0.15 0.01 264);
 
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.16 0.01 264);
+  --card-foreground: oklch(0.15 0.01 264);
 
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.16 0.01 264);
+  --popover-foreground: oklch(0.15 0.01 264);
 
-  /* Indigo primary accent */
-  --primary: oklch(0.47 0.18 254);
+  /* Electric Indigo primary accent (#4B3EFF) */
+  --primary: oklch(0.53 0.24 277);
   --primary-foreground: oklch(0.99 0 0);
 
   --secondary: oklch(0.94 0.005 264);
@@ -89,79 +89,81 @@
   --muted: oklch(0.94 0.005 264);
   --muted-foreground: oklch(0.48 0.01 264);
 
-  --accent: oklch(0.93 0.01 254);
-  --accent-foreground: oklch(0.30 0.12 254);
+  --accent: oklch(0.94 0.015 277);
+  --accent-foreground: oklch(0.35 0.18 277);
 
   --destructive: oklch(0.58 0.24 27);
 
   --border: oklch(0.88 0.005 264);
   --input: oklch(0.88 0.005 264);
-  --ring: oklch(0.47 0.18 254);
+  --ring: oklch(0.53 0.24 277);
 
   /* Chart colours (on-brand blues + status tones) */
-  --chart-1: oklch(0.47 0.18 254);
+  --chart-1: oklch(0.53 0.24 277);
   --chart-2: oklch(0.56 0.18 142);
   --chart-3: oklch(0.72 0.18 78);
   --chart-4: oklch(0.58 0.24 27);
   --chart-5: oklch(0.52 0.18 242);
 
-  /* Base radius — 8px */
-  --radius: 0.5rem;
+  /* Base radius — 0px Sharp corners */
+  --radius: 0rem;
 
   /* Sidebar */
-  --sidebar: oklch(0.97 0.004 264);
-  --sidebar-foreground: oklch(0.16 0.01 264);
-  --sidebar-primary: oklch(0.47 0.18 254);
+  --sidebar: oklch(0.975 0.004 264);
+  --sidebar-foreground: oklch(0.15 0.01 264);
+  --sidebar-primary: oklch(0.53 0.24 277);
   --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.93 0.01 254);
-  --sidebar-accent-foreground: oklch(0.30 0.12 254);
+  --sidebar-accent: oklch(0.94 0.015 277);
+  --sidebar-accent-foreground: oklch(0.35 0.18 277);
   --sidebar-border: oklch(0.88 0.005 264);
-  --sidebar-ring: oklch(0.47 0.18 254);
+  --sidebar-ring: oklch(0.53 0.24 277);
 }
 
 /* ─── Dark mode ─────────────────────────────────────────────────── */
 .dark {
-  --background: oklch(0.14 0.008 264);
-  --foreground: oklch(0.97 0.004 264);
+  /* Deep obsidian Control Tower palette matching Landing Page */
+  --background: oklch(0.12 0.012 264);
+  --foreground: oklch(0.98 0.004 264);
 
-  --card: oklch(0.19 0.01 264);
-  --card-foreground: oklch(0.97 0.004 264);
+  --card: oklch(0.16 0.012 264);
+  --card-foreground: oklch(0.98 0.004 264);
 
-  --popover: oklch(0.19 0.01 264);
-  --popover-foreground: oklch(0.97 0.004 264);
+  --popover: oklch(0.16 0.012 264);
+  --popover-foreground: oklch(0.98 0.004 264);
 
-  --primary: oklch(0.60 0.18 254);
-  --primary-foreground: oklch(0.14 0.008 264);
+  /* Electric Indigo primary accent (#4B3EFF) */
+  --primary: oklch(0.58 0.24 277);
+  --primary-foreground: oklch(0.99 0 0);
 
-  --secondary: oklch(0.24 0.01 264);
-  --secondary-foreground: oklch(0.97 0.004 264);
+  --secondary: oklch(0.22 0.01 264);
+  --secondary-foreground: oklch(0.98 0.004 264);
 
-  --muted: oklch(0.24 0.01 264);
-  --muted-foreground: oklch(0.64 0.008 264);
+  --muted: oklch(0.22 0.01 264);
+  --muted-foreground: oklch(0.65 0.008 264);
 
-  --accent: oklch(0.28 0.05 254);
-  --accent-foreground: oklch(0.80 0.10 254);
+  --accent: oklch(0.26 0.06 277);
+  --accent-foreground: oklch(0.85 0.12 277);
 
   --destructive: oklch(0.70 0.19 22);
 
   --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.60 0.18 254);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.58 0.24 277);
 
-  --chart-1: oklch(0.60 0.18 254);
+  --chart-1: oklch(0.58 0.24 277);
   --chart-2: oklch(0.62 0.18 142);
   --chart-3: oklch(0.78 0.18 78);
   --chart-4: oklch(0.68 0.22 27);
   --chart-5: oklch(0.60 0.18 242);
 
-  --sidebar: oklch(0.19 0.01 264);
-  --sidebar-foreground: oklch(0.97 0.004 264);
-  --sidebar-primary: oklch(0.60 0.18 254);
-  --sidebar-primary-foreground: oklch(0.14 0.008 264);
-  --sidebar-accent: oklch(0.28 0.05 254);
-  --sidebar-accent-foreground: oklch(0.80 0.10 254);
+  --sidebar: oklch(0.13 0.012 264);
+  --sidebar-foreground: oklch(0.98 0.004 264);
+  --sidebar-primary: oklch(0.58 0.24 277);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.26 0.06 277);
+  --sidebar-accent-foreground: oklch(0.85 0.12 277);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.60 0.18 254);
+  --sidebar-ring: oklch(0.58 0.24 277);
 }
 
 /* ─── Base layer ────────────────────────────────────────────────── */
@@ -198,6 +200,36 @@
   }
 }
 
+/* ─── Leaflet Map Layer & Marker Animations ────────────────────── */
+.leaflet-container {
+  font-family: inherit;
+  width: 100%;
+  height: 100%;
+  border-radius: 0.75rem;
+}
+
+.map-pulse-ring {
+  border: 3px solid #f97316;
+  border-radius: 50%;
+  height: 18px;
+  width: 18px;
+  position: absolute;
+  left: -9px;
+  top: -9px;
+  animation: mapPulse 2s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
+}
+
+@keyframes mapPulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+
 /* ─── Reduced-motion fallback ───────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -207,5 +239,8 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  .map-pulse-ring {
+    animation: none !important;
   }
 }

@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import type { YardSlotResponse } from "@/types/logistics";
 import { StatusBadge, type StatusVariant } from "@/components/shared/StatusBadge";
-import { Truck } from "lucide-react";
+import { Truck, Clock } from "lucide-react";
 import { format } from "date-fns";
 
 interface YardSlotProps {
@@ -26,32 +26,34 @@ export function YardSlot({ slot, className }: YardSlotProps) {
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-md",
+        "flex flex-col gap-2 rounded-none border border-border bg-card p-3 transition-all hover:shadow-2xs hover:border-border",
         className
       )}
     >
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="font-semibold text-foreground">{slot.slot_code}</h3>
+      <div className="flex items-center justify-between gap-1.5 border-b border-border/40 pb-2">
+        <h3 className="font-mono font-bold text-sm text-foreground tracking-tight">{slot.slot_code}</h3>
         <StatusBadge 
           status={getStatusVariant(slot.status)} 
           label={slot.status} 
         />
       </div>
       
-      <div className="flex flex-col gap-1 mt-1">
-        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Truck className="size-4 shrink-0" />
-          <span className={cn("font-medium", isOccupied ? "text-foreground" : "")}>
-            {isOccupied ? displayTruckCode : "No truck assigned"}
+      <div className="flex flex-col gap-1 text-xs">
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <Truck className="size-3.5 shrink-0" />
+          <span className={cn("font-medium truncate", isOccupied ? "font-mono font-bold text-foreground" : "text-muted-foreground/70")}>
+            {isOccupied ? displayTruckCode : "No truck"}
           </span>
         </div>
         
         {slot.appointment_time && (
-          <div className="text-xs text-muted-foreground ml-5.5 pl-0.5">
-            Appt: {format(new Date(slot.appointment_time), "MMM d, h:mm a")}
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground pt-0.5">
+            <Clock className="size-3 shrink-0 text-muted-foreground/70" />
+            <span className="truncate">Appt: <span className="font-mono font-medium text-foreground/80">{format(new Date(slot.appointment_time), "MMM d, h:mm a")}</span></span>
           </div>
         )}
       </div>
     </div>
   );
 }
+

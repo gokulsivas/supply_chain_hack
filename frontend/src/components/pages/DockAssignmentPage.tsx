@@ -1,18 +1,28 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import axios from "axios";
+import React, { useState, useEffect, useCallback } from "react";
+import { motion } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { 
+  getTrucks, 
+  listDocks, 
+  assignDockDoor, 
+  releaseDockDoor, 
+  resetLogisticsDemo, 
+  isApiError 
+} from "@/lib/api";
+import { 
   Truck as TruckIcon, 
   RotateCcw, 
   RefreshCw, 
   Sparkles,
-  Package
+  Package,
+  ArrowRight,
+  Loader2
 } from "lucide-react";
 
 interface InboundTruck {
@@ -37,10 +47,19 @@ interface DockDoor {
   door_number?: string;
   status?: "AVAILABLE" | "OCCUPIED" | "RESERVED" | "MAINTENANCE" | string;
   suitability?: string[] | string;
+  suitable_load_types?: string;
   dock_type?: string;
   current_allocation?: string | null;
   assigned_truck?: string | null;
   truck_id?: string | null;
+  current_truck_id?: string | null;
+}
+
+interface RecommendationData {
+  dockId: string;
+  dockNumber: string;
+  confidence: number;
+  reason: string;
 }
 
 const DEFAULT_TRUCKS: InboundTruck[] = [
@@ -77,27 +96,26 @@ const DEFAULT_TRUCKS: InboundTruck[] = [
 ];
 
 const DEFAULT_DOCKS: DockDoor[] = [
-  { id: "dock-1", dock_number: "D-01", status: "OCCUPIED", suitability: ["General Cargo"], current_allocation: null },
-  { id: "dock-2", dock_number: "D-02", status: "RESERVED", suitability: ["Electronics"], current_allocation: null },
-  { id: "dock-3", dock_number: "D-03", status: "MAINTENANCE", suitability: ["General Cargo"], current_allocation: null },
-  { id: "dock-4", dock_number: "D-05", status: "OCCUPIED", suitability: ["General, Electronics"], current_allocation: "TRK-0004" },
-  { id: "dock-5", dock_number: "D-04", status: "AVAILABLE", suitability: ["Electronics"], current_allocation: null },
+  { id: "dock-1", dock_code: "D-01", status: "OCCUPIED", suitable_load_types: "General", current_allocation: null },
+  { id: "dock-2", dock_code: "D-02", status: "RESERVED", suitable_load_types: "Electronics", current_allocation: null },
+  { id: "dock-3", dock_code: "D-03", status: "MAINTENANCE", suitable_load_types: "General", current_allocation: null },
+  { id: "dock-4", dock_code: "D-05", status: "OCCUPIED", suitable_load_types: "General, Electronics", current_allocation: "TRK-0004" },
+  { id: "dock-5", dock_code: "D-04", status: "AVAILABLE", suitable_load_types: "Electronics", current_allocation: null },
 ];
 
 export function DockAssignmentPage() {
   const [trucks, setTrucks] = useState<InboundTruck[]>(DEFAULT_TRUCKS);
   const [docks, setDocks] = useState<DockDoor[]>(DEFAULT_DOCKS);
   const [selectedTruckId, setSelectedTruckId] = useState<string>("");
-  const [recommendation, setRecommendation] = useState<any>(null);
+  const [recommendation, setRecommendation] = useState<RecommendationData | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [releasingId, setReleasingId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
   const getDockLabel = (dock: DockDoor, idx: number) => {
     return (
-      dock.dock_number ||
       dock.dock_code ||
+      dock.dock_number ||
       dock.door_number ||
       dock.name ||
       dock.code ||
@@ -109,38 +127,38 @@ export function DockAssignmentPage() {
     return truck.truck_number || truck.truck_code || truck.code || truck.id || "TRK-1042";
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
-    let localPOs: any[] = [];
+    let localPOs: Record<string, unknown>[] = [];
     try {
       const stored = localStorage.getItem("local_purchase_orders");
       if (stored) localPOs = JSON.parse(stored);
     } catch {}
 
     const localTrucks: InboundTruck[] = localPOs.map((po) => ({
-      id: po.logistics_truck || `trk-${po.id}`,
-      truck_number: po.logistics_truck || `TRK-${po.id}`,
+      id: String(po.logistics_truck || `trk-${po.id}`),
+      truck_number: String(po.logistics_truck || `TRK-${po.id}`),
       driver_name: "Assigned Fleet Driver",
-      cargo_type: po.item_title || po.item || "Procured Equipment",
-      load_type: po.item_title || po.item || "Procured Equipment",
+      cargo_type: String(po.item_title || po.item || "Procured Equipment"),
+      load_type: String(po.item_title || po.item || "Procured Equipment"),
       status: "IN_TRANSIT",
-      po_number: po.po_code || po.po_number || po.id,
+      po_number: String(po.po_code || po.po_number || po.id),
       priority: "HIGH",
     }));
 
     try {
       const [truckRes, dockRes] = await Promise.allSettled([
-        axios.get(`${API_BASE}/logistics/trucks`),
-        axios.get(`${API_BASE}/logistics/docks`),
+        getTrucks(),
+        listDocks(),
       ]);
 
       const combinedMap = new Map<string, InboundTruck>();
       localTrucks.forEach((t) => combinedMap.set(t.truck_number || t.id, t));
 
-      if (truckRes.status === "fulfilled" && Array.isArray(truckRes.value.data) && truckRes.value.data.length > 0) {
-        truckRes.value.data.forEach((t: any) => {
-          const key = t.truck_number || t.truck_code || t.id;
-          if (key && !combinedMap.has(key)) combinedMap.set(key, t);
+      if (truckRes.status === "fulfilled" && Array.isArray(truckRes.value) && truckRes.value.length > 0) {
+        truckRes.value.forEach((t: Record<string, unknown>) => {
+          const key = String(t.truck_number || t.truck_code || t.id);
+          if (key && !combinedMap.has(key)) combinedMap.set(key, t as unknown as InboundTruck);
         });
       }
 
@@ -151,8 +169,8 @@ export function DockAssignmentPage() {
 
       setTrucks(Array.from(combinedMap.values()));
 
-      if (dockRes.status === "fulfilled" && Array.isArray(dockRes.value.data) && dockRes.value.data.length > 0) {
-        setDocks(dockRes.value.data);
+      if (dockRes.status === "fulfilled" && Array.isArray(dockRes.value) && dockRes.value.length > 0) {
+        setDocks(dockRes.value);
       } else {
         setDocks(DEFAULT_DOCKS);
       }
@@ -162,10 +180,70 @@ export function DockAssignmentPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadData();
+    let isMounted = true;
+    const init = async () => {
+      let localPOs: Record<string, unknown>[] = [];
+      try {
+        const stored = localStorage.getItem("local_purchase_orders");
+        if (stored) localPOs = JSON.parse(stored);
+      } catch {}
+
+      const localTrucks: InboundTruck[] = localPOs.map((po) => ({
+        id: String(po.logistics_truck || `trk-${po.id}`),
+        truck_number: String(po.logistics_truck || `TRK-${po.id}`),
+        driver_name: "Assigned Fleet Driver",
+        cargo_type: String(po.item_title || po.item || "Procured Equipment"),
+        load_type: String(po.item_title || po.item || "Procured Equipment"),
+        status: "IN_TRANSIT",
+        po_number: String(po.po_code || po.po_number || po.id),
+        priority: "HIGH",
+      }));
+
+      try {
+        const [truckRes, dockRes] = await Promise.allSettled([
+          getTrucks(),
+          listDocks(),
+        ]);
+
+        const combinedMap = new Map<string, InboundTruck>();
+        localTrucks.forEach((t) => combinedMap.set(t.truck_number || t.id, t));
+
+        if (truckRes.status === "fulfilled" && Array.isArray(truckRes.value) && truckRes.value.length > 0) {
+          truckRes.value.forEach((t: Record<string, unknown>) => {
+            const key = String(t.truck_number || t.truck_code || t.id);
+            if (key && !combinedMap.has(key)) combinedMap.set(key, t as unknown as InboundTruck);
+          });
+        }
+
+        DEFAULT_TRUCKS.forEach((t) => {
+          const key = t.truck_number || t.id;
+          if (key && !combinedMap.has(key)) combinedMap.set(key, t);
+        });
+
+        if (isMounted) {
+          setTrucks(Array.from(combinedMap.values()));
+          if (dockRes.status === "fulfilled" && Array.isArray(dockRes.value) && dockRes.value.length > 0) {
+            setDocks(dockRes.value);
+          } else {
+            setDocks(DEFAULT_DOCKS);
+          }
+        }
+      } catch {
+        if (isMounted) {
+          setTrucks(DEFAULT_TRUCKS);
+          setDocks(DEFAULT_DOCKS);
+        }
+      }
+    };
+
+    init();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleSelectTruck = (truckId: string) => {
@@ -180,7 +258,7 @@ export function DockAssignmentPage() {
     );
 
     const availableDock = docks.find(
-      (d) => (d.status === "AVAILABLE" || d.status === "available") && !d.current_allocation && !d.assigned_truck
+      (d) => (d.status === "AVAILABLE" || d.status === "available") && !d.current_allocation && !d.assigned_truck && !d.current_truck_id
     );
 
     if (availableDock && selectedTruck) {
@@ -209,52 +287,52 @@ export function DockAssignmentPage() {
     const truckCode = chosenTruck ? getTruckLabel(chosenTruck) : "TRK-0003";
 
     try {
-      await axios.post(`${API_BASE}/logistics/trucks/${selectedTruckId}/assign-dock`, { dock_id: dockId });
-    } catch {}
-
-    setDocks((prevDocks) =>
-      prevDocks.map((dock, idx) => {
-        const isTarget = dock.id === dockId || getDockLabel(dock, idx) === dockId;
-        return isTarget
-          ? { ...dock, status: "OCCUPIED", current_allocation: truckCode, assigned_truck: truckCode }
-          : dock;
-      })
-    );
-
-    toast.success(`Dock Assigned!`, {
-      description: `Truck ${truckCode} assigned to unloading bay.`,
-    });
-
-    setRecommendation(null);
-    setSelectedTruckId("");
-    setIsAssigning(false);
+      await assignDockDoor(selectedTruckId, dockId);
+      toast.success(`Dock Assigned!`, {
+        description: `Truck ${truckCode} assigned to unloading bay.`,
+      });
+      setRecommendation(null);
+      setSelectedTruckId("");
+      await loadData();
+    } catch (err) {
+      toast.error(isApiError(err) ? err.detail : "Failed to assign dock.");
+    } finally {
+      setIsAssigning(false);
+    }
   };
 
   const handleReleaseDock = async (dockId: string, dockName: string) => {
+    setReleasingId(dockId);
     try {
-      await axios.post(`${API_BASE}/logistics/docks/${dockId}/release`);
-    } catch {}
-
-    setDocks((prevDocks) =>
-      prevDocks.map((dock, idx) => {
-        const isTarget = dock.id === dockId || getDockLabel(dock, idx) === dockId;
-        return isTarget
-          ? { ...dock, status: "AVAILABLE", current_allocation: null, assigned_truck: null }
-          : dock;
-      })
-    );
-
-    toast.info("Dock Released", {
-      description: `${dockName} is now marked available.`,
-    });
+      await releaseDockDoor(dockId);
+      toast.info("Dock Released", {
+        description: `${dockName} is now marked available.`,
+      });
+      await loadData();
+    } catch (err) {
+      toast.error(isApiError(err) ? err.detail : "Failed to release dock.");
+    } finally {
+      setReleasingId(null);
+    }
   };
 
-  const handleResetDemo = () => {
-    setTrucks(DEFAULT_TRUCKS);
-    setDocks(DEFAULT_DOCKS);
-    setSelectedTruckId("");
-    setRecommendation(null);
-    toast.success("Demo reset to presentation baseline.");
+  const handleResetDemo = async () => {
+    if (!window.confirm("Are you sure you want to reset the E2 logistics demo state? This will clear all assignments.")) {
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await resetLogisticsDemo();
+      toast.success("Demo reset to presentation baseline.");
+      setSelectedTruckId("");
+      setRecommendation(null);
+      await loadData();
+    } catch (err) {
+      toast.error(isApiError(err) ? err.detail : "Failed to reset demo.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const selectedTruckDetails = trucks.find(
@@ -263,22 +341,41 @@ export function DockAssignmentPage() {
 
   return (
     <AppShell title="Dock assignment">
-      <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full py-6">
+
+      <motion.div 
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+        className="flex flex-col gap-6 max-w-7xl mx-auto w-full py-6 px-4 sm:px-6 pb-12"
+      >
         
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Dock door assignment</h1>
-            <p className="text-sm text-slate-500">
-              Recommend and assign dock doors using load suitability, priority, and availability.
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-0.5">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Autonomous Dock Door Assignment
+            </h1>
+            <p className="text-xs text-muted-foreground">
+              Recommend and assign dock doors using load suitability, priority, and real-time bay availability.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleResetDemo} className="text-xs">
-              <RotateCcw className="size-3.5 mr-1.5" /> Reset Demo
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleResetDemo} 
+              className="text-xs h-8 px-3 shadow-2xs font-semibold gap-1.5"
+            >
+              <RotateCcw className="size-3.5" /> Reset Demo
             </Button>
-            <Button variant="outline" size="sm" onClick={loadData} disabled={isLoading} className="text-xs">
-              <RefreshCw className={`size-3.5 mr-1.5 ${isLoading ? "animate-spin" : ""}`} /> Refresh
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={loadData} 
+              disabled={isLoading} 
+              className="text-xs h-8 px-3 shadow-2xs font-semibold gap-1.5"
+            >
+              <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} /> Refresh
             </Button>
           </div>
         </div>
@@ -288,27 +385,27 @@ export function DockAssignmentPage() {
           
           {/* Left: Assign Truck & AI Recommendation */}
           <div className="lg:col-span-4 space-y-4">
-            <Card className="border-slate-200 shadow-sm bg-white">
-              <CardHeader className="p-4 border-b bg-slate-50/50">
-                <CardTitle className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                  <TruckIcon className="size-4 text-blue-600" /> Assign Truck
+            <Card className="border border-border shadow-xs bg-card rounded-none">
+              <CardHeader className="p-4 border-b border-border bg-muted/40">
+                <CardTitle className="text-sm font-bold text-foreground flex items-center gap-2">
+                  <TruckIcon className="size-4 text-primary" /> Assign Inbound Truck
                 </CardTitle>
-                <CardDescription className="text-xs">
+                <CardDescription className="text-xs text-muted-foreground">
                   Select an inbound shipment to trigger AI dock allocation.
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-4 space-y-4">
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1.5">
-                    Select inbound truck
+                  <label className="text-xs font-semibold text-foreground block mb-1.5">
+                    Select Inbound Vehicle
                   </label>
                   <select
-                    className="w-full h-10 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-800 shadow-sm focus:ring-1 focus:ring-blue-500"
+                    className="w-full h-9 px-3 rounded-none border border-border bg-background text-xs font-medium text-foreground shadow-2xs focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none"
                     value={selectedTruckId}
                     onChange={(e) => handleSelectTruck(e.target.value)}
                   >
                     <option value="">-- Choose a truck --</option>
-                    {trucks.map((t: any) => {
+                    {trucks.map((t) => {
                       const code = getTruckLabel(t);
                       const load = t.cargo_type || t.load_type || "Industrial Cargo";
                       const status = t.status || "DELIVERED";
@@ -322,22 +419,22 @@ export function DockAssignmentPage() {
                 </div>
 
                 {selectedTruckDetails && (
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2 text-xs">
+                  <div className="bg-muted/40 border border-border rounded-none p-3.5 space-y-2 text-xs">
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-500 font-medium">Selected Truck:</span>
-                      <span className="font-mono font-bold text-blue-700">
+                      <span className="text-muted-foreground font-medium">Selected Truck:</span>
+                      <span className="font-mono font-bold text-primary">
                         {getTruckLabel(selectedTruckDetails)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-500 font-medium">Load:</span>
-                      <span className="font-medium text-slate-800">
+                      <span className="text-muted-foreground font-medium">Cargo Type:</span>
+                      <span className="font-medium text-foreground">
                         {selectedTruckDetails.cargo_type || selectedTruckDetails.load_type || "Industrial Components"}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-500 font-medium">Driver:</span>
-                      <span className="font-medium text-slate-800">
+                      <span className="text-muted-foreground font-medium">Driver:</span>
+                      <span className="font-medium text-foreground truncate max-w-[180px]">
                         {selectedTruckDetails.driver_name || "Assigned Facility Driver"}
                       </span>
                     </div>
@@ -345,21 +442,21 @@ export function DockAssignmentPage() {
                 )}
 
                 {recommendation && (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-3">
+                  <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-none p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
-                        <Sparkles className="size-3.5 text-emerald-600" /> AI Recommendation
+                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                        <Sparkles className="size-3.5 text-emerald-600 dark:text-emerald-400" /> AI Recommendation
                       </span>
-                      <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 font-mono text-[10px]">
+                      <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 font-mono text-[10px] font-bold rounded-none">
                         98% Match
                       </Badge>
                     </div>
 
                     <div>
-                      <div className="text-base font-bold text-emerald-950">
+                      <div className="text-sm font-bold text-emerald-950 dark:text-emerald-100">
                         Assign to Door {recommendation.dockNumber}
                       </div>
-                      <p className="text-xs text-emerald-800 mt-1 leading-relaxed">
+                      <p className="text-xs text-emerald-800 dark:text-emerald-300 mt-1 leading-relaxed font-medium">
                         {recommendation.reason}
                       </p>
                     </div>
@@ -367,9 +464,10 @@ export function DockAssignmentPage() {
                     <Button
                       onClick={() => handleAssignDock(recommendation.dockId)}
                       disabled={isAssigning}
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-9 shadow-sm"
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-8.5 shadow-xs flex items-center justify-center gap-1.5 rounded-none cursor-pointer"
                     >
                       {isAssigning ? "Routing Truck..." : `Confirm & Assign to ${recommendation.dockNumber}`}
+                      {!isAssigning && <ArrowRight className="size-3.5" />}
                     </Button>
                   </div>
                 )}
@@ -379,103 +477,113 @@ export function DockAssignmentPage() {
 
           {/* Right: Dock Schedule Table */}
           <div className="lg:col-span-8">
-            <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
-              <CardHeader className="p-4 border-b bg-slate-50/50">
-                <CardTitle className="text-sm font-bold text-slate-800">Dock Schedule</CardTitle>
+            <Card className="border border-border shadow-xs bg-card rounded-none overflow-hidden">
+              <CardHeader className="p-4 border-b border-border bg-muted/40">
+                <CardTitle className="text-sm font-bold text-foreground">Dock Schedule &amp; Bay Allocation</CardTitle>
+                <CardDescription className="text-xs text-muted-foreground">
+                  Current door occupancy, cargo compatibility, and active turnaround status.
+                </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="divide-y divide-slate-100 text-xs">
-                  
-                  {/* Table Header */}
-                  <div className="grid grid-cols-12 px-5 py-3 font-semibold uppercase text-slate-500 bg-slate-50/80 text-[11px]">
-                    <div className="col-span-2">Dock</div>
-                    <div className="col-span-3">Suitability</div>
-                    <div className="col-span-4">Current Allocation</div>
-                    <div className="col-span-3 text-right">Action</div>
-                  </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-muted-foreground">
+                    <thead className="bg-muted/60 text-[11px] uppercase font-semibold text-foreground border-b border-border">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold w-24">Dock</th>
+                        <th className="px-4 py-3 font-semibold">Suitability &amp; Status</th>
+                        <th className="px-4 py-3 font-semibold">Current Allocation</th>
+                        <th className="px-4 py-3 text-right font-semibold">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border font-normal">
+                      {docks.map((dock, idx) => {
+                        const dockLabel = getDockLabel(dock, idx);
+                        const currentTruck = dock.current_allocation || dock.assigned_truck || dock.truck_id || dock.current_truck_id;
+                        const isOccupied = dock.status === "OCCUPIED" || Boolean(currentTruck);
+                        const isReserved = dock.status === "RESERVED";
+                        const isMaintenance = dock.status === "MAINTENANCE";
+                        const isAvailable = !isOccupied && !isReserved && !isMaintenance;
 
-                  {/* Table Rows */}
-                  {docks.map((dock, idx) => {
-                    const dockLabel = getDockLabel(dock, idx);
-                    const currentTruck = dock.current_allocation || dock.assigned_truck || dock.truck_id;
-                    const isOccupied = dock.status === "OCCUPIED" || Boolean(currentTruck);
-                    const isReserved = dock.status === "RESERVED";
-                    const isMaintenance = dock.status === "MAINTENANCE";
-                    const isAvailable = !isOccupied && !isReserved && !isMaintenance;
+                        const suitabilityText = Array.isArray(dock.suitability)
+                          ? dock.suitability.join(", ")
+                          : dock.suitable_load_types || dock.suitability || dock.dock_type || "General Cargo";
 
-                    const suitabilityText = Array.isArray(dock.suitability)
-                      ? dock.suitability.join(", ")
-                      : dock.suitability || dock.dock_type || "General Cargo";
+                        return (
+                          <tr key={dock.id || idx} className="hover:bg-muted/30 transition-colors">
+                            
+                            {/* Dock Code Column */}
+                            <td className="px-4 py-3.5 font-mono font-bold text-foreground text-sm">
+                              {dockLabel}
+                            </td>
 
-                    return (
-                      <div key={dock.id || idx} className="grid grid-cols-12 px-5 py-3.5 items-center hover:bg-slate-50/50 transition-colors">
-                        
-                        {/* Dock Code Column */}
-                        <div className="col-span-2 flex items-center gap-2">
-                          <span className="font-mono font-bold text-sm text-slate-900">
-                            {dockLabel}
-                          </span>
-                        </div>
+                            {/* Suitability & Status Badge */}
+                            <td className="px-4 py-3.5 space-y-1">
+                              <div className="flex items-center gap-2">
+                                <Badge
+                                  className={
+                                    isAvailable
+                                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold rounded-none"
+                                      : isOccupied
+                                      ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-[10px] font-semibold rounded-none"
+                                      : isReserved
+                                      ? "bg-blue-500/15 text-blue-700 dark:text-blue-400 border border-blue-500/30 text-[10px] font-semibold rounded-none"
+                                      : "bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/30 text-[10px] font-semibold rounded-none"
+                                  }
+                                >
+                                  {isOccupied ? "OCCUPIED" : isReserved ? "RESERVED" : isMaintenance ? "MAINTENANCE" : "AVAILABLE"}
+                                </Badge>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                                <Package className="size-3 text-muted-foreground/70 shrink-0" />
+                                <span>{suitabilityText}</span>
+                              </p>
+                            </td>
 
-                        {/* Suitability & Status Badge */}
-                        <div className="col-span-3 space-y-1">
-                          <Badge
-                            className={
-                              isAvailable
-                                ? "bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px]"
-                                : isOccupied
-                                ? "bg-amber-100 text-amber-800 border-amber-300 text-[10px]"
-                                : isReserved
-                                ? "bg-blue-100 text-blue-800 border-blue-300 text-[10px]"
-                                : "bg-rose-100 text-rose-800 border-rose-300 text-[10px]"
-                            }
-                          >
-                            {isOccupied ? "OCCUPIED" : isReserved ? "RESERVED" : isMaintenance ? "MAINTENANCE" : "AVAILABLE"}
-                          </Badge>
-                          <p className="text-[11px] text-slate-500 flex items-center gap-1">
-                            <Package className="size-3 text-slate-400" />
-                            {suitabilityText}
-                          </p>
-                        </div>
+                            {/* Current Allocation */}
+                            <td className="px-4 py-3.5">
+                              {currentTruck ? (
+                                <span className="font-mono font-bold text-primary bg-primary/10 px-2.5 py-0.5 rounded-none border border-primary/20 text-xs inline-flex items-center gap-1">
+                                  <TruckIcon className="size-3 text-primary shrink-0" />
+                                  {currentTruck}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground/60 text-xs font-normal">No truck assigned</span>
+                              )}
+                            </td>
 
-                        {/* Current Allocation */}
-                        <div className="col-span-4 flex items-center gap-2 font-medium">
-                          {currentTruck ? (
-                            <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200 text-xs">
-                              {currentTruck}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 font-normal">No truck assigned</span>
-                          )}
-                        </div>
+                            {/* Actions */}
+                            <td className="px-4 py-3.5 text-right">
+                              {isOccupied ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={releasingId === dock.id || isAssigning}
+                                  onClick={() => handleReleaseDock(dock.id, dockLabel)}
+                                  className="h-7 px-2.5 text-[11px] text-foreground hover:bg-muted/60 font-medium rounded-none cursor-pointer"
+                                >
+                                  {releasingId === dock.id ? <Loader2 className="size-3 animate-spin mr-1" /> : null}
+                                  Release Dock
+                                </Button>
+                              ) : isAvailable && selectedTruckId ? (
+                                <Button
+                                  size="sm"
+                                  disabled={isAssigning || releasingId !== null}
+                                  onClick={() => handleAssignDock(dock.id)}
+                                  className="h-7 px-3 text-[11px] bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-2xs rounded-none cursor-pointer"
+                                >
+                                  {isAssigning ? <Loader2 className="size-3 animate-spin mr-1" /> : null}
+                                  Assign
+                                </Button>
+                              ) : (
+                                <span className="text-muted-foreground/40 text-xs font-mono">—</span>
+                              )}
+                            </td>
 
-                        {/* Actions */}
-                        <div className="col-span-3 text-right">
-                          {isOccupied ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleReleaseDock(dock.id, dockLabel)}
-                              className="h-7 text-[11px] text-slate-700 hover:text-slate-900 border-slate-300"
-                            >
-                              Release Dock
-                            </Button>
-                          ) : isAvailable && selectedTruckId ? (
-                            <Button
-                              size="sm"
-                              onClick={() => handleAssignDock(dock.id)}
-                              className="h-7 text-[11px] bg-blue-600 hover:bg-blue-700 text-white font-semibold"
-                            >
-                              Assign
-                            </Button>
-                          ) : (
-                            <span className="text-slate-300 text-xs">—</span>
-                          )}
-                        </div>
-
-                      </div>
-                    );
-                  })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </CardContent>
             </Card>
@@ -483,10 +591,10 @@ export function DockAssignmentPage() {
 
         </div>
 
-      </div>
+      </motion.div>
     </AppShell>
   );
 }
 
 export const DockDoorAssignment = DockAssignmentPage;
-export default DockAssignmentPage;
+export default DockAssignmentPage;

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { MobileNav } from "./MobileNav";
+import { ThemeToggle } from "@/components/shared/ThemeToggle";
 import { useAuth } from "@/hooks/useAuth";
 import { clearToken } from "@/lib/auth";
 
@@ -22,13 +23,24 @@ interface TopbarProps {
 
 export function Topbar({ title }: TopbarProps) {
   const router = useRouter();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
 
   const handleLogout = () => {
     logout();
     clearToken();
     router.push("/login");
   };
+
+  const displayName = user?.name || (user?.email ? user.email.split("@")[0] : "Operator");
+  const displayEmail = user?.email || "Supply Chain Control Tower";
+  const initials = user?.name
+    ? user.name
+        .split(" ")
+        .map((n: string) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : null;
 
   return (
     <header className="sticky top-0 z-40 flex h-12 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur-sm">
@@ -51,14 +63,17 @@ export function Topbar({ title }: TopbarProps) {
         <span>System operational</span>
       </div>
 
+      {/* Theme Toggle Button */}
+      <ThemeToggle />
+
       {/* Notifications */}
       <Button
         variant="ghost"
         size="icon-sm"
         aria-label="View notifications"
-        className="relative"
+        className="relative size-8"
       >
-        <Bell className="size-4" aria-hidden="true" />
+        <Bell className="size-4 text-muted-foreground hover:text-foreground" aria-hidden="true" />
       </Button>
 
       {/* User menu */}
@@ -68,31 +83,31 @@ export function Topbar({ title }: TopbarProps) {
             variant="ghost"
             size="icon-sm"
             aria-label="Open user menu"
-            className="rounded-full"
+            className="rounded-full size-8 p-0 cursor-pointer"
           >
-          <Avatar size="sm">
-            <AvatarFallback aria-hidden="true">
-              <User className="size-3.5" />
-            </AvatarFallback>
-          </Avatar>
+            <Avatar size="sm" className="size-7">
+              <AvatarFallback aria-hidden="true" className="text-[11px] font-bold bg-primary/10 text-primary">
+                {initials || <User className="size-3.5" />}
+              </AvatarFallback>
+            </Avatar>
           </Button>
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent sideOffset={6}>
+        <DropdownMenuContent sideOffset={6} className="w-56">
           <DropdownMenuLabel>
-            <div className="flex flex-col">
-              <span className="font-medium text-foreground">Operator</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                Supply Chain Control Tower
+            <div className="flex flex-col gap-0.5">
+              <span className="font-semibold text-xs text-foreground truncate">{displayName}</span>
+              <span className="text-[11px] font-normal text-muted-foreground truncate">
+                {displayEmail}
               </span>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            className="text-red-600 focus:bg-red-100 dark:focus:bg-red-900/50"
+            className="text-red-600 focus:bg-red-50 dark:focus:bg-red-950/50 cursor-pointer text-xs"
             onClick={handleLogout}
           >
-            <LogOut className="size-4" aria-hidden="true" />
+            <LogOut className="size-3.5 mr-1.5" aria-hidden="true" />
             Sign out
           </DropdownMenuItem>
         </DropdownMenuContent>

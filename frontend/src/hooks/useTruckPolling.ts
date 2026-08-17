@@ -17,6 +17,7 @@ export function useTruckPolling(query: string): UseTruckPollingResult {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const fetchInProgress = useRef(false);
+  const requestSeq = useRef(0);
 
   const fetchData = useCallback(async (isSilentRefresh = false) => {
     if (!query) {
@@ -25,31 +26,34 @@ export function useTruckPolling(query: string): UseTruckPollingResult {
       return;
     }
 
-    if (fetchInProgress.current) return;
-    fetchInProgress.current = true;
+    const currentReqId = ++requestSeq.current;
 
     if (!isSilentRefresh) {
       setIsLoading(true);
       setError(null);
+      setData(null); // Clear previous truck data to prevent stale map rendering
     }
 
     try {
       const response = await searchTracking(query);
-      setData(response);
-      setError(null);
-      setLastUpdated(new Date());
-    } catch (err) {
-      if (isApiError(err)) {
-        setError(err.detail);
-      } else {
-        setError("Failed to fetch tracking data. Please try again.");
+      if (currentReqId === requestSeq.current) {
+        setData(response);
+        setError(null);
+        setLastUpdated(new Date());
       }
-      setData(null);
+    } catch (err) {
+      if (currentReqId === requestSeq.current) {
+        if (isApiError(err)) {
+          setError(err.detail);
+        } else {
+          setError("Failed to fetch tracking data. Please try again.");
+        }
+        setData(null);
+      }
     } finally {
-      if (!isSilentRefresh) {
+      if (currentReqId === requestSeq.current && !isSilentRefresh) {
         setIsLoading(false);
       }
-      fetchInProgress.current = false;
     }
   }, [query]);
 

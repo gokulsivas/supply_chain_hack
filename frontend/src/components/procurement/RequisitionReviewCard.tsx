@@ -1,29 +1,33 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { CheckCircle2, ArrowRight, Loader2, AlertCircle, Sparkles, MessageSquare } from "lucide-react";
-import { createPurchaseRequest } from "@/lib/api";
-import type { ExtractionResultResponse } from "@/types/procurement";
+import { createPurchaseRequest, extractApiError } from "@/lib/api";
+import type { ExtractionResultResponse, PurchaseRequest } from "@/types/procurement";
 
 interface RequisitionReviewCardProps {
-  initialData?: any;
-  data?: any;
-  extraction?: ExtractionResultResponse | any;
-  onSuccess?: (createdReq: any) => void;
-  onCreated?: (createdReq: any) => void;
+  initialData?: Record<string, unknown>;
+  data?: Record<string, unknown>;
+  extraction?: ExtractionResultResponse | Record<string, unknown>;
+  onSuccess?: (createdReq: PurchaseRequest) => void;
+  onCreated?: (createdReq: PurchaseRequest) => void;
   onCancel?: () => void;
 }
 
-function resolveExtractedFields(extraction: any, initialData: any, data: any) {
+function resolveExtractedFields(
+  extraction?: ExtractionResultResponse | Record<string, unknown>,
+  initialData?: Record<string, unknown>,
+  data?: Record<string, unknown>
+) {
   const source =
-    extraction?.extracted ||
-    extraction?.data ||
-    extraction?.draft ||
+    (extraction as Record<string, unknown>)?.extracted ||
+    (extraction as Record<string, unknown>)?.data ||
+    (extraction as Record<string, unknown>)?.draft ||
     extraction ||
     initialData?.extracted ||
     initialData ||
@@ -31,16 +35,17 @@ function resolveExtractedFields(extraction: any, initialData: any, data: any) {
     data ||
     {};
 
-  const item = source.item_description || source.item || source.title || source.description || "";
-  const quantity = source.quantity !== undefined && source.quantity !== null ? source.quantity : "";
-  const location = source.delivery_location || source.location || "";
-  let date = source.required_date || source.required_by || "";
-  if (typeof date === "string" && date.includes("T")) {
+  const src = source as Record<string, unknown>;
+  const item = String(src.item_description || src.item || src.title || src.description || "");
+  const quantity = src.quantity !== undefined && src.quantity !== null ? Number(src.quantity) || String(src.quantity) : "";
+  const location = String(src.delivery_location || src.location || "");
+  let date = String(src.required_date || src.required_by || "");
+  if (date.includes("T")) {
     date = date.split("T")[0];
   }
-  const priority = (source.priority || "NORMAL").toUpperCase();
+  const priority = String(src.priority || "NORMAL").toUpperCase();
 
-  return { item, quantity, location, date, priority, raw_message: extraction?.raw_message || source.raw_message };
+  return { item, quantity, location, date, priority, raw_message: String((extraction as Record<string, unknown>)?.raw_message || src.raw_message || "") };
 }
 
 export function RequisitionReviewCard({
@@ -56,6 +61,7 @@ export function RequisitionReviewCard({
 
   const initialResolved = resolveExtractedFields(extraction, initialData, data);
 
+  const [prevExtraction, setPrevExtraction] = useState(extraction);
   const [itemDescription, setItemDescription] = useState(initialResolved.item);
   const [quantity, setQuantity] = useState<number | string>(initialResolved.quantity);
   const [deliveryLocation, setDeliveryLocation] = useState(initialResolved.location);
@@ -63,23 +69,20 @@ export function RequisitionReviewCard({
   const [priority, setPriority] = useState(initialResolved.priority);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Sync state whenever a new extraction result arrives
-  useEffect(() => {
+  // Sync state whenever a new extraction prop arrives
+  if (extraction !== prevExtraction) {
+    setPrevExtraction(extraction);
     const resolved = resolveExtractedFields(extraction, initialData, data);
     setItemDescription(resolved.item);
     setQuantity(resolved.quantity);
     setDeliveryLocation(resolved.location);
     setRequiredDate(resolved.date);
     setPriority(resolved.priority);
+  }
 
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[RequisitionReviewCard] Populated with extracted state:", resolved);
-    }
-  }, [extraction, initialData, data]);
-
-  const rawMessage = extraction?.raw_message;
-  const warnings = extraction?.warnings || [];
-  const confidence = extraction?.confidence;
+  const rawMessage = (extraction as Record<string, unknown>)?.raw_message as string | undefined;
+  const warnings = ((extraction as Record<string, unknown>)?.warnings as string[]) || [];
+  const confidence = (extraction as Record<string, unknown>)?.confidence as Record<string, number> | undefined;
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -90,102 +93,67 @@ export function RequisitionReviewCard({
 
     setIsSubmitting(true);
 
-    const generatedReqId = `REQ-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    const newRequest = {
-      id: generatedReqId,
-      request_code: generatedReqId,
-      title: `${quantity}x ${itemDescription}`,
-      description: itemDescription,
-      item: itemDescription,
-      item_description: itemDescription,
-      category: "HARDWARE_EQUIPMENT",
-      quantity: Number(quantity) || 1,
-      delivery_location: deliveryLocation,
-      required_date: requiredDate,
-      required_by: requiredDate,
-      priority: priority.toUpperCase(),
-      status: "VALIDATED",
-      raw_message: rawMessage,
-      raw_chat_input: rawMessage,
-      created_at: new Date().toISOString(),
-      items: [
-        {
-          product: { name: itemDescription },
-          description: itemDescription,
-          quantity: Number(quantity) || 1,
-          unit_price: 18500,
-        },
-      ],
-    };
-
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[RequisitionReviewCard] Submitting Purchase Request Payload:", newRequest);
-    }
-
-    // Save to localStorage so SuppliersPage immediately accesses it
     try {
-      const existingRaw = localStorage.getItem("local_purchase_requests");
-      const existing = existingRaw ? JSON.parse(existingRaw) : [];
-      const updated = [newRequest, ...existing.filter((r: any) => r.id !== generatedReqId)];
-      localStorage.setItem("local_purchase_requests", JSON.stringify(updated));
-      localStorage.setItem("active_selected_req_id", generatedReqId);
-    } catch {}
+      // Send to backend API
+      const createdPR = (await createPurchaseRequest({
+        item: itemDescription,
+        item_description: itemDescription,
+        quantity: Number(quantity) || 1,
+        delivery_location: deliveryLocation,
+        required_date: requiredDate,
+        priority: priority.toUpperCase(),
+        raw_message: rawMessage,
+      })) as Record<string, unknown>;
 
-    // Send to backend API
-    try {
-      if (typeof createPurchaseRequest === "function") {
-        await createPurchaseRequest({
-          item: itemDescription,
-          item_description: itemDescription,
-          quantity: Number(quantity) || 1,
-          delivery_location: deliveryLocation,
-          required_date: requiredDate,
-          priority: priority.toUpperCase(),
-          raw_message: rawMessage,
-        });
+      const reqIdentifier = String(createdPR?.id || createdPR?.request_code || "");
+      const displayCode = String(createdPR?.request_code || reqIdentifier);
+
+      // Save to localStorage for quick rehydration
+      try {
+        const existingRaw = localStorage.getItem("local_purchase_requests");
+        const existing = existingRaw ? (JSON.parse(existingRaw) as Array<Record<string, unknown>>) : [];
+        const updated = [createdPR, ...existing.filter((r) => r.id !== createdPR.id && r.request_code !== createdPR.request_code)];
+        localStorage.setItem("local_purchase_requests", JSON.stringify(updated));
+        localStorage.setItem("active_selected_req_id", reqIdentifier);
+      } catch {}
+
+      toast.success(`Purchase Requisition ${displayCode} Created!`, {
+        description: `Routed to Autonomous Sourcing for ${quantity}x ${itemDescription}.`,
+      });
+
+      if (callback) {
+        callback(createdPR as unknown as PurchaseRequest);
+      } else {
+        router.push(`/procurement/suppliers?reqId=${encodeURIComponent(reqIdentifier)}`);
       }
-    } catch (err) {
-      console.warn("Backend PR creation error:", err);
+    } catch (err: unknown) {
+      toast.error(extractApiError(err));
+    } finally {
+      setIsSubmitting(false);
     }
-
-    toast.success(`Purchase Requisition ${generatedReqId} Created!`, {
-      description: `Routed to Autonomous Sourcing for ${quantity}x ${itemDescription}.`,
-    });
-
-    if (callback) {
-      callback(newRequest);
-    }
-
-    setIsSubmitting(false);
-
-    // Route to Suppliers page with the newly generated ID
-    setTimeout(() => {
-      router.push(`/procurement/suppliers?reqId=${generatedReqId}`);
-    }, 600);
   };
 
   return (
-    <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
-      <CardHeader className="p-4 border-b bg-emerald-50/60 flex flex-row items-center justify-between">
-        <CardTitle className="text-sm font-bold text-emerald-950 flex items-center gap-2">
-          <CheckCircle2 className="size-4 text-emerald-600" /> Extracted Requisition
+    <Card className="border border-border shadow-xs bg-card rounded-none overflow-hidden">
+      <CardHeader className="p-4 border-b border-border bg-emerald-500/10 dark:bg-emerald-950/20 flex flex-row items-center justify-between">
+        <CardTitle className="text-sm font-bold text-foreground flex items-center gap-2">
+          <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" /> Extracted Requisition
         </CardTitle>
-        <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px] font-semibold flex items-center gap-1">
-          <Sparkles className="size-3 text-emerald-600" /> AI Validated
+        <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[11px] font-semibold flex items-center gap-1 rounded-none">
+          <Sparkles className="size-3 text-emerald-600 dark:text-emerald-400" /> AI Validated
         </Badge>
       </CardHeader>
 
       <CardContent className="p-4 space-y-4">
         {/* Source metadata display */}
         {rawMessage && (
-          <div className="bg-slate-50 border border-slate-200/80 rounded-lg p-2.5 text-xs text-slate-600 flex items-start gap-2">
-            <MessageSquare className="size-3.5 text-slate-400 mt-0.5 shrink-0" />
+          <div className="bg-muted/40 border border-border rounded-none p-2.5 text-xs text-muted-foreground flex items-start gap-2.5">
+            <MessageSquare className="size-3.5 text-muted-foreground/70 mt-0.5 shrink-0" />
             <div className="overflow-hidden">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">
+              <span className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider block mb-0.5">
                 Extracted from message:
               </span>
-              <p className="italic text-slate-800 text-xs font-medium truncate">
+              <p className="italic text-foreground text-xs font-medium truncate">
                 &quot;{rawMessage}&quot;
               </p>
             </div>
@@ -193,8 +161,8 @@ export function RequisitionReviewCard({
         )}
 
         {warnings.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-2.5 text-xs flex items-center gap-2">
-            <AlertCircle className="size-4 text-amber-600 shrink-0" />
+          <div className="bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-300 rounded-none p-2.5 text-xs flex items-center gap-2 font-medium">
+            <AlertCircle className="size-4 text-amber-600 dark:text-amber-400 shrink-0" />
             <span>{warnings[0]}</span>
           </div>
         )}
@@ -202,12 +170,12 @@ export function RequisitionReviewCard({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
+              <label className="text-xs font-semibold text-foreground/90 block mb-1.5">
                 Item Description
               </label>
               <input
                 type="text"
-                className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-900 shadow-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                className="w-full h-9 px-3 rounded-none border border-input bg-background text-xs font-medium text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-1.5 focus-visible:ring-primary disabled:opacity-50 transition-colors"
                 value={itemDescription}
                 onChange={(e) => setItemDescription(e.target.value)}
                 placeholder="e.g. mobile phones"
@@ -216,13 +184,13 @@ export function RequisitionReviewCard({
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
+              <label className="text-xs font-semibold text-foreground/90 block mb-1.5">
                 Quantity
               </label>
               <input
                 type="number"
                 min="1"
-                className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-900 shadow-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                className="w-full h-9 px-3 rounded-none border border-input bg-background text-xs font-medium text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-1.5 focus-visible:ring-primary disabled:opacity-50 transition-colors"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
                 placeholder="e.g. 12"
@@ -231,12 +199,12 @@ export function RequisitionReviewCard({
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
+              <label className="text-xs font-semibold text-foreground/90 block mb-1.5">
                 Delivery Location
               </label>
               <input
                 type="text"
-                className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-900 shadow-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                className="w-full h-9 px-3 rounded-none border border-input bg-background text-xs font-medium text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-1.5 focus-visible:ring-primary disabled:opacity-50 transition-colors"
                 value={deliveryLocation}
                 onChange={(e) => setDeliveryLocation(e.target.value)}
                 placeholder="e.g. Baksa"
@@ -245,12 +213,12 @@ export function RequisitionReviewCard({
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
+              <label className="text-xs font-semibold text-foreground/90 block mb-1.5">
                 Required Date
               </label>
               <input
                 type="date"
-                className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-900 shadow-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                className="w-full h-9 px-3 rounded-none border border-input bg-background text-xs font-medium text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-1.5 focus-visible:ring-primary disabled:opacity-50 transition-colors"
                 value={requiredDate}
                 onChange={(e) => setRequiredDate(e.target.value)}
                 required
@@ -259,11 +227,11 @@ export function RequisitionReviewCard({
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1">
+            <label className="text-xs font-semibold text-foreground/90 block mb-1.5">
               Priority
             </label>
             <select
-              className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-900 shadow-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              className="w-full h-9 px-3 rounded-none border border-input bg-background text-xs font-medium text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-1.5 focus-visible:ring-primary transition-colors cursor-pointer"
               value={priority}
               onChange={(e) => setPriority(e.target.value)}
             >
@@ -274,9 +242,9 @@ export function RequisitionReviewCard({
             </select>
           </div>
 
-          <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+          <div className="flex items-center justify-between pt-3 border-t border-border">
             {confidence ? (
-              <span className="text-[11px] text-slate-400 font-mono">
+              <span className="text-[11px] text-muted-foreground font-mono font-medium">
                 Extraction Quality: {Math.round((confidence.item_description || 0.95) * 100)}%
               </span>
             ) : <span />}
@@ -289,7 +257,7 @@ export function RequisitionReviewCard({
                   size="sm"
                   onClick={onCancel}
                   disabled={isSubmitting}
-                  className="text-xs h-9"
+                  className="text-xs h-9 px-3.5 rounded-none cursor-pointer"
                 >
                   Cancel
                 </Button>
@@ -299,7 +267,7 @@ export function RequisitionReviewCard({
                 type="submit"
                 size="sm"
                 disabled={isSubmitting}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-9 px-4 shadow-xs"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs h-9 px-4 shadow-xs rounded-none cursor-pointer"
               >
                 {isSubmitting ? (
                   <span className="flex items-center gap-1.5">

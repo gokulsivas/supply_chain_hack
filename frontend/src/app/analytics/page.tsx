@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import axios from "axios";
+import { motion } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -19,7 +20,10 @@ import {
   Leaf, 
   Award, 
   RefreshCw, 
-  Zap 
+  Zap,
+  Activity,
+  AlertTriangle,
+  CheckCircle2
 } from "lucide-react";
 
 interface AnalyticsData {
@@ -63,9 +67,9 @@ export default function AnalyticsPage() {
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = React.useCallback(async () => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
       const res = await axios.get(`${API_BASE}/analytics/summary`);
       setData(res.data);
     } catch {
@@ -73,11 +77,28 @@ export default function AnalyticsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [API_BASE]);
 
   useEffect(() => {
-    fetchAnalytics();
-  }, []);
+    let isMounted = true;
+    axios
+      .get(`${API_BASE}/analytics/summary`)
+      .then((res) => {
+        if (isMounted) {
+          setData(res.data);
+          setIsLoading(false);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          toast.error("Failed to load live analytics data");
+          setIsLoading(false);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [API_BASE]);
 
   const logistics = data?.logistics || {
     total_trucks: 5,
@@ -106,75 +127,87 @@ export default function AnalyticsPage() {
 
   return (
     <AppShell title="Control Tower Analytics">
-      <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 space-y-8">
+      <motion.div 
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+        className="max-w-7xl mx-auto py-6 px-4 sm:px-6 space-y-6 pb-12"
+      >
         <PageHeader 
           title="Executive Control Tower & Operational Intelligence"
           description="Holistic performance telemetry combining E2 fleet tracking reliability with PR2 autonomous AP efficiency."
           action={
-            <Button variant="outline" size="sm" onClick={fetchAnalytics} disabled={isLoading}>
-              <RefreshCw className={`size-4 mr-1.5 ${isLoading ? "animate-spin" : ""}`} /> Refresh Intelligence
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={fetchAnalytics} 
+              disabled={isLoading}
+              className="text-xs h-8 px-3 shadow-2xs font-semibold gap-1.5"
+            >
+              <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} /> 
+              {isLoading ? "Refreshing..." : "Refresh Intelligence"}
             </Button>
           }
         />
 
         {/* ── Top Executive KPI Ribbon ── */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="border-slate-200 shadow-sm bg-white">
-            <CardContent className="p-5 flex items-center justify-between">
+          <Card className="border border-border/80 shadow-xs bg-card hover:shadow-sm transition-shadow">
+            <CardContent className="p-4.5 flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Fleet OTIF Delivery Rate</p>
-                <p className="text-3xl font-extrabold text-slate-900">{logistics.otif_rate}%</p>
-                <p className="text-[11px] text-emerald-600 font-medium flex items-center gap-1">
-                  <TrendingUp className="size-3.5" /> +3.8% vs. Baseline
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Fleet OTIF Delivery Rate</p>
+                <p className="text-2xl sm:text-3xl font-extrabold font-mono text-foreground">{logistics.otif_rate}%</p>
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                  <TrendingUp className="size-3" /> +3.8% vs. Baseline
                 </p>
               </div>
-              <div className="bg-blue-50 border border-blue-100 p-3.5 rounded-2xl text-blue-600">
-                <Truck className="size-6" />
+              <div className="bg-blue-500/10 border border-blue-500/20 p-3 rounded-none text-blue-600 dark:text-blue-400 shrink-0">
+                <Truck className="size-5" />
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm bg-white">
-            <CardContent className="p-5 flex items-center justify-between">
+          <Card className="border border-border/80 shadow-xs bg-card hover:shadow-sm transition-shadow">
+            <CardContent className="p-4.5 flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Touchless AP Automation</p>
-                <p className="text-3xl font-extrabold text-emerald-600">{fin.touchless_ap_rate}%</p>
-                <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
-                  <Sparkles className="size-3.5 text-amber-500" /> Autonomous 3-Way Match
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Touchless AP Automation</p>
+                <p className="text-2xl sm:text-3xl font-extrabold font-mono text-emerald-600 dark:text-emerald-400">{fin.touchless_ap_rate}%</p>
+                <p className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
+                  <Sparkles className="size-3 text-amber-500" /> Autonomous 3-Way Match
                 </p>
               </div>
-              <div className="bg-emerald-50 border border-emerald-100 p-3.5 rounded-2xl text-emerald-600">
-                <ShieldCheck className="size-6" />
+              <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-none text-emerald-600 dark:text-emerald-400 shrink-0">
+                <ShieldCheck className="size-5" />
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm bg-white">
-            <CardContent className="p-5 flex items-center justify-between">
+          <Card className="border border-border/80 shadow-xs bg-card hover:shadow-sm transition-shadow">
+            <CardContent className="p-4.5 flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Early Discount Captured</p>
-                <p className="text-3xl font-extrabold text-slate-900">₹{fin.early_discounts_captured.toLocaleString()}</p>
-                <p className="text-[11px] text-emerald-600 font-medium flex items-center gap-1">
-                  <DollarSign className="size-3.5" /> {fin.discount_realization_rate}% Realization
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Early Discount Captured</p>
+                <p className="text-2xl sm:text-3xl font-extrabold font-mono text-foreground">₹{fin.early_discounts_captured.toLocaleString()}</p>
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                  <DollarSign className="size-3" /> {fin.discount_realization_rate}% Realization
                 </p>
               </div>
-              <div className="bg-amber-50 border border-amber-100 p-3.5 rounded-2xl text-amber-600">
-                <DollarSign className="size-6" />
+              <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-none text-amber-600 dark:text-amber-400 shrink-0">
+                <DollarSign className="size-5" />
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm bg-white">
-            <CardContent className="p-5 flex items-center justify-between">
+          <Card className="border border-border/80 shadow-xs bg-card hover:shadow-sm transition-shadow">
+            <CardContent className="p-4.5 flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Cycle Time Reduction</p>
-                <p className="text-3xl font-extrabold text-indigo-600">{fin.avg_cycle_time_reduction}</p>
-                <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
-                  <Clock className="size-3.5" /> Cut from 72h to 4m
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Cycle Time Reduction</p>
+                <p className="text-2xl sm:text-3xl font-extrabold font-mono text-primary">{fin.avg_cycle_time_reduction}</p>
+                <p className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
+                  <Clock className="size-3 text-muted-foreground" /> Cut from 72h to 4m
                 </p>
               </div>
-              <div className="bg-indigo-50 border border-indigo-100 p-3.5 rounded-2xl text-indigo-600">
-                <Zap className="size-6" />
+              <div className="bg-primary/10 border border-primary/20 p-3 rounded-none text-primary shrink-0">
+                <Zap className="size-5" />
               </div>
             </CardContent>
           </Card>
@@ -182,113 +215,123 @@ export default function AnalyticsPage() {
 
         {/* ── Dual Control Tower Panels ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card className="border-slate-200 shadow-sm bg-white">
-            <CardHeader className="border-b bg-slate-50/50 py-4 px-6">
-              <div className="flex items-center justify-between">
+          {/* E2 Fleet Panel */}
+          <Card className="border border-border/80 shadow-xs bg-card rounded-none overflow-hidden">
+            <CardHeader className="border-b border-border/60 bg-muted/40 py-3.5 px-5">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
-                  <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
-                    <Truck className="size-4 text-blue-600" />
+                  <CardTitle className="text-sm font-bold text-foreground flex items-center gap-2">
+                    <Truck className="size-4 text-blue-600 dark:text-blue-400" />
                     E2: In-Transit Fleet & Telematics Telemetry
                   </CardTitle>
-                  <CardDescription className="text-xs text-slate-500">
+                  <CardDescription className="text-xs text-muted-foreground mt-0.5">
                     Live GPS tracking status and transit compliance.
                   </CardDescription>
                 </div>
-                <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs">
+                <Badge className="bg-blue-500/15 text-blue-700 dark:text-blue-400 border border-blue-500/30 text-[11px] font-semibold">
                   {logistics.total_trucks} Active Trucks
                 </Badge>
               </div>
             </CardHeader>
-            <CardContent className="p-6 space-y-5">
+            <CardContent className="p-5 space-y-4">
               <div className="space-y-3">
                 <div>
-                  <div className="flex justify-between text-xs font-medium mb-1">
-                    <span className="text-slate-700">On-Schedule Transit Rate</span>
-                    <span className="font-bold text-emerald-600">{logistics.otif_rate}%</span>
+                  <div className="flex justify-between text-xs font-medium mb-1.5">
+                    <span className="text-foreground font-medium flex items-center gap-1.5">
+                      <CheckCircle2 className="size-3.5 text-emerald-600" /> On-Schedule Transit Rate
+                    </span>
+                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{logistics.otif_rate}%</span>
                   </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                    <div className="bg-emerald-500 h-2.5 rounded-full" style={{ width: `${logistics.otif_rate}%` }} />
+                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                    <div className="bg-emerald-500 h-2 rounded-full transition-all duration-300" style={{ width: `${Math.min(Math.max(logistics.otif_rate, 0), 100)}%` }} />
                   </div>
                 </div>
                 <div>
-                  <div className="flex justify-between text-xs font-medium mb-1">
-                    <span className="text-slate-700">Average Transit Delay</span>
-                    <span className="font-bold text-amber-600">+{logistics.avg_transit_delay_mins} mins</span>
+                  <div className="flex justify-between text-xs font-medium mb-1.5">
+                    <span className="text-foreground font-medium flex items-center gap-1.5">
+                      <Clock className="size-3.5 text-amber-600" /> Average Transit Delay
+                    </span>
+                    <span className="font-mono font-bold text-amber-600 dark:text-amber-400">+{logistics.avg_transit_delay_mins} mins</span>
                   </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                    <div className="bg-amber-500 h-2.5 rounded-full" style={{ width: "25%" }} />
+                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                    <div className="bg-amber-500 h-2 rounded-full transition-all duration-300" style={{ width: "25%" }} />
                   </div>
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 pt-2">
-                <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-center">
-                  <div className="text-xl font-bold text-blue-700">{logistics.in_transit}</div>
-                  <div className="text-[11px] font-semibold text-blue-600">In-Transit</div>
+                <div className="p-3 bg-blue-500/5 border border-blue-500/20 rounded-none text-center">
+                  <div className="text-xl font-bold font-mono text-blue-700 dark:text-blue-400">{logistics.in_transit}</div>
+                  <div className="text-[11px] font-semibold text-blue-600 dark:text-blue-300 mt-0.5">In-Transit</div>
                 </div>
-                <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl text-center">
-                  <div className="text-xl font-bold text-amber-700">{logistics.delayed}</div>
-                  <div className="text-[11px] font-semibold text-amber-600">Delayed Alerts</div>
+                <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-none text-center">
+                  <div className="text-xl font-bold font-mono text-amber-700 dark:text-amber-400">{logistics.delayed}</div>
+                  <div className="text-[11px] font-semibold text-amber-600 dark:text-amber-300 mt-0.5">Delayed Alerts</div>
                 </div>
-                <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-center">
-                  <div className="text-xl font-bold text-emerald-700">{logistics.delivered}</div>
-                  <div className="text-[11px] font-semibold text-emerald-600">Delivered</div>
+                <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-none text-center">
+                  <div className="text-xl font-bold font-mono text-emerald-700 dark:text-emerald-400">{logistics.delivered}</div>
+                  <div className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-300 mt-0.5">Delivered</div>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm bg-white">
-            <CardHeader className="border-b bg-slate-50/50 py-4 px-6">
-              <div className="flex items-center justify-between">
+          {/* PR2 P2P Panel */}
+          <Card className="border border-border/80 shadow-xs bg-card rounded-none overflow-hidden">
+            <CardHeader className="border-b border-border/60 bg-muted/40 py-3.5 px-5">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
-                  <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
-                    <Layers className="size-4 text-emerald-600" />
+                  <CardTitle className="text-sm font-bold text-foreground flex items-center gap-2">
+                    <Layers className="size-4 text-emerald-600 dark:text-emerald-400" />
                     PR2: Autonomous P2P & Financial Health
                   </CardTitle>
-                  <CardDescription className="text-xs text-slate-500">
+                  <CardDescription className="text-xs text-muted-foreground mt-0.5">
                     Reconciliation accuracy and rebate capture.
                   </CardDescription>
                 </div>
-                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs">
+                <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[11px] font-semibold">
                   {fin.touchless_ap_rate}% Touchless
                 </Badge>
               </div>
             </CardHeader>
-            <CardContent className="p-6 space-y-5">
+            <CardContent className="p-5 space-y-4">
               <div className="space-y-3">
                 <div>
-                  <div className="flex justify-between text-xs font-medium mb-1">
-                    <span className="text-slate-700">Dynamic Discount Realization</span>
-                    <span className="font-bold text-emerald-600">{fin.discount_realization_rate}%</span>
+                  <div className="flex justify-between text-xs font-medium mb-1.5">
+                    <span className="text-foreground font-medium flex items-center gap-1.5">
+                      <Activity className="size-3.5 text-emerald-600" /> Dynamic Discount Realization
+                    </span>
+                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{fin.discount_realization_rate}%</span>
                   </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                    <div className="bg-emerald-500 h-2.5 rounded-full" style={{ width: `${fin.discount_realization_rate}%` }} />
+                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                    <div className="bg-emerald-500 h-2 rounded-full transition-all duration-300" style={{ width: `${Math.min(Math.max(fin.discount_realization_rate, 0), 100)}%` }} />
                   </div>
                 </div>
                 <div>
-                  <div className="flex justify-between text-xs font-medium mb-1">
-                    <span className="text-slate-700">Invoice Discrepancy Rate</span>
-                    <span className="font-bold text-rose-600">{fin.anomaly_rate}%</span>
+                  <div className="flex justify-between text-xs font-medium mb-1.5">
+                    <span className="text-foreground font-medium flex items-center gap-1.5">
+                      <AlertTriangle className="size-3.5 text-rose-600" /> Invoice Discrepancy Rate
+                    </span>
+                    <span className="font-mono font-bold text-rose-600 dark:text-rose-400">{fin.anomaly_rate}%</span>
                   </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                    <div className="bg-rose-500 h-2.5 rounded-full" style={{ width: `${Math.max(fin.anomaly_rate * 5, 8)}%` }} />
+                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                    <div className="bg-rose-500 h-2 rounded-full transition-all duration-300" style={{ width: `${Math.max(fin.anomaly_rate * 5, 8)}%` }} />
                   </div>
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 pt-2">
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
-                  <div className="text-xl font-bold text-slate-900">₹{(fin.total_settled_amount / 100000).toFixed(1)}L</div>
-                  <div className="text-[11px] font-semibold text-slate-600">Settled Funds</div>
+                <div className="p-3 bg-muted/40 border border-border/60 rounded-none text-center">
+                  <div className="text-xl font-bold font-mono text-foreground">₹{(fin.total_settled_amount / 100000).toFixed(1)}L</div>
+                  <div className="text-[11px] font-semibold text-muted-foreground mt-0.5">Settled Funds</div>
                 </div>
-                <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-center">
-                  <div className="text-xl font-bold text-emerald-700">₹{(fin.early_discounts_captured / 1000).toFixed(0)}k</div>
-                  <div className="text-[11px] font-semibold text-emerald-600">Rebates Saved</div>
+                <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-none text-center">
+                  <div className="text-xl font-bold font-mono text-emerald-700 dark:text-emerald-400">₹{(fin.early_discounts_captured / 1000).toFixed(0)}k</div>
+                  <div className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-300 mt-0.5">Rebates Saved</div>
                 </div>
-                <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-center">
-                  <div className="text-xl font-bold text-indigo-700">{fin.total_pos}</div>
-                  <div className="text-[11px] font-semibold text-indigo-600">Auto POs</div>
+                <div className="p-3 bg-primary/5 border border-primary/20 rounded-none text-center">
+                  <div className="text-xl font-bold font-mono text-primary">{fin.total_pos}</div>
+                  <div className="text-[11px] font-semibold text-primary/80 mt-0.5">Auto POs</div>
                 </div>
               </div>
             </CardContent>
@@ -296,60 +339,62 @@ export default function AnalyticsPage() {
         </div>
 
         {/* ── Supplier Performance Matrix ── */}
-        <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
-          <CardHeader className="border-b bg-slate-50/50 py-4 px-6">
-            <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+        <Card className="border border-border/80 shadow-xs bg-card rounded-none overflow-hidden">
+          <CardHeader className="border-b border-border/60 bg-muted/40 py-3.5 px-5">
+            <CardTitle className="text-sm font-bold text-foreground flex items-center gap-2">
               <Award className="size-4 text-amber-500" />
               Supplier Multi-Factor Benchmark & ESG Scorecard
             </CardTitle>
-            <CardDescription className="text-xs text-slate-500">
+            <CardDescription className="text-xs text-muted-foreground mt-0.5">
               Rankings weighted by Reliability (35%), Quality (30%), Cost (20%), and Sustainability (15%).
             </CardDescription>
           </CardHeader>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-600">
-              <thead className="bg-slate-100/75 text-xs uppercase font-semibold text-slate-700 border-b">
+            <table className="w-full text-left text-xs text-muted-foreground">
+              <thead className="bg-muted/60 text-[11px] uppercase font-semibold text-foreground border-b border-border/60">
                 <tr>
-                  <th className="px-6 py-3.5">Supplier Partner</th>
-                  <th className="px-6 py-3.5">Category</th>
-                  <th className="px-6 py-3.5">Reliability (35%)</th>
-                  <th className="px-6 py-3.5">Quality (30%)</th>
-                  <th className="px-6 py-3.5">Cost Efficiency (20%)</th>
-                  <th className="px-6 py-3.5">ESG Score (15%)</th>
-                  <th className="px-6 py-3.5 text-right">Composite Score</th>
+                  <th className="px-5 py-3 font-semibold">Supplier Partner</th>
+                  <th className="px-5 py-3 font-semibold">Location / Category</th>
+                  <th className="px-5 py-3 font-semibold">Reliability (35%)</th>
+                  <th className="px-5 py-3 font-semibold">Quality (30%)</th>
+                  <th className="px-5 py-3 font-semibold">Cost Efficiency (20%)</th>
+                  <th className="px-5 py-3 font-semibold">ESG Score (15%)</th>
+                  <th className="px-5 py-3 text-right font-semibold">Composite Score</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 font-normal">
+              <tbody className="divide-y divide-border/40 font-normal">
                 {suppliers.map((s, idx) => (
-                  <tr key={s.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className={`size-6 rounded-full flex items-center justify-center font-bold text-xs ${
-                          idx === 0 ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
+                  <tr key={s.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`size-5.5 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0 ${
+                          idx === 0 
+                            ? "bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/30" 
+                            : "bg-muted text-muted-foreground border border-border"
                         }`}>
                           #{idx + 1}
                         </div>
                         <div>
-                          <div className="font-semibold text-slate-900">{s.name}</div>
-                          <div className="text-[10px] text-slate-400 font-mono">Tier {s.tier}</div>
+                          <div className="font-semibold text-foreground text-xs">{s.name}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono">Tier {s.tier}</div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-xs font-medium text-slate-700">{s.category}</td>
-                    <td className="px-6 py-4 font-semibold text-blue-600">{s.reliability_score}%</td>
-                    <td className="px-6 py-4 font-semibold text-emerald-600">{s.quality_score}%</td>
-                    <td className="px-6 py-4 font-semibold text-slate-700">{100 - s.cost_index}%</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-1 font-semibold text-emerald-700">
-                        <Leaf className="size-3.5" />
+                    <td className="px-5 py-3.5 text-xs font-medium text-foreground">{s.category}</td>
+                    <td className="px-5 py-3.5 font-mono font-semibold text-blue-600 dark:text-blue-400">{s.reliability_score}%</td>
+                    <td className="px-5 py-3.5 font-mono font-semibold text-emerald-600 dark:text-emerald-400">{s.quality_score}%</td>
+                    <td className="px-5 py-3.5 font-mono font-semibold text-foreground">{100 - s.cost_index}%</td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-1 font-mono font-semibold text-emerald-700 dark:text-emerald-400">
+                        <Leaf className="size-3.5 shrink-0" />
                         {s.sustainability_score}%
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <Badge className={`font-bold text-xs ${
+                    <td className="px-5 py-3.5 text-right">
+                      <Badge className={`font-mono font-bold text-[11px] ${
                         s.overall_score >= 90 
-                          ? "bg-emerald-100 text-emerald-800 border-emerald-300" 
-                          : "bg-blue-100 text-blue-800 border-blue-300"
+                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30" 
+                          : "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30"
                       }`}>
                         {s.overall_score} / 100
                       </Badge>
@@ -360,7 +405,7 @@ export default function AnalyticsPage() {
             </table>
           </div>
         </Card>
-      </div>
+      </motion.div>
     </AppShell>
   );
-}
+}

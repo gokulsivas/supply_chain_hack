@@ -12,7 +12,7 @@ export function TruckTrackingDetails({ truck, shipment, className }: TruckTracki
   const lastUpdated = truck.updated_at ? format(parseISO(truck.updated_at), "MMM d, h:mm:ss a") : "Unknown";
 
   return (
-    <div className={cn("bg-card border border-border rounded-xl p-5 flex flex-col gap-4", className)}>
+    <div className={cn("bg-card border border-border rounded-none p-5 flex flex-col gap-4", className)}>
       <h3 className="text-sm font-semibold tracking-tight text-foreground border-b border-border pb-2">
         Operational Details
       </h3>
