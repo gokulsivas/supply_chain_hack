@@ -146,7 +146,7 @@ def _truck_records() -> list[dict]:
             original_eta=arrived_at,
             current_eta=arrived_at,
             delay_minutes=0,
-            load_type="Pharmaceuticals",
+            load_type="Industrial Packaging",
             priority="NORMAL",
         ),
     ]

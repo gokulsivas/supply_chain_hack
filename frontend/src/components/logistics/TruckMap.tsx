@@ -49,6 +49,32 @@ interface TruckMapProps {
   truck: TruckPosition;
 }
 
+const CITY_COORDS: Record<string, [number, number]> = {
+  chennai: [13.0827, 80.2707],
+  bengaluru: [12.9716, 77.5946],
+  bangalore: [12.9716, 77.5946],
+  mumbai: [19.0760, 72.8777],
+  delhi: [28.7041, 77.1025],
+  "delhi ncr": [28.7041, 77.1025],
+  "new delhi": [28.6139, 77.2090],
+  hyderabad: [17.3850, 78.4867],
+  pune: [18.5204, 73.8567],
+  coimbatore: [11.0168, 76.9558],
+  kolkata: [22.5726, 88.3639],
+  ahmedabad: [23.0225, 72.5714],
+  jaipur: [26.9124, 75.7873],
+  kochi: [9.9312, 76.2673],
+};
+
+function getCoords(cityName?: string, fallback: [number, number] = [13.0827, 80.2707]): [number, number] {
+  if (!cityName) return fallback;
+  const lower = cityName.toLowerCase();
+  for (const [key, coords] of Object.entries(CITY_COORDS)) {
+    if (lower.includes(key)) return coords;
+  }
+  return fallback;
+}
+
 export default function TruckMap({ truck }: TruckMapProps) {
   const shipment = truck.shipment;
   const isArrived = truck.status === "ARRIVED" || truck.status === "IN_YARD" || truck.status === "DOCKED";
@@ -56,17 +82,18 @@ export default function TruckMap({ truck }: TruckMapProps) {
 
   const routeColor = isArrived ? "#10b981" : isDelayed ? "#f59e0b" : "#2563eb";
 
-  const originLat = 13.0827;
-  const originLng = 80.2707;
-  const destLat = 12.9716;
-  const destLng = 77.5946;
+  const [originLat, originLng] = getCoords(shipment?.origin_location, [13.0827, 80.2707]);
+  const [destLat, destLng] = getCoords(shipment?.destination_location, [12.9716, 77.5946]);
+
+  const originName = shipment?.origin_location || "Origin Facility";
+  const destName = shipment?.destination_location || "Destination Hub";
 
   return (
     <div className="flex flex-col gap-2 h-full min-h-[360px]">
       <div className="w-full h-full min-h-[360px] rounded-xl overflow-hidden border border-border relative z-0 shadow-sm">
         <MapContainer
           center={[truck.current_lat, truck.current_lng]}
-          zoom={8}
+          zoom={7}
           scrollWheelZoom={true}
           style={{ height: "100%", width: "100%", zIndex: 0 }}
         >
@@ -77,13 +104,13 @@ export default function TruckMap({ truck }: TruckMapProps) {
 
           <Marker position={[originLat, originLng]} icon={truckIcon}>
             <Popup>
-              <strong>Origin:</strong> {shipment?.origin_location ?? "Chennai DC"}
+              <strong>Origin:</strong> {originName}
             </Popup>
           </Marker>
 
           <Marker position={[destLat, destLng]} icon={truckIcon}>
             <Popup>
-              <strong>Destination:</strong> {shipment?.destination_location ?? "Bengaluru Hub"}
+              <strong>Destination:</strong> {destName}
             </Popup>
           </Marker>
 

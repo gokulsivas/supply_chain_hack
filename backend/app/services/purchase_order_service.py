@@ -79,11 +79,39 @@ def approve_supplier_and_create_po(db: Session, purchase_request: PurchaseReques
     db.add(po_item)
     db.flush()
 
+CITY_COORDS = {
+    "chennai": (13.0827, 80.2707),
+    "bengaluru": (12.9716, 77.5946),
+    "bangalore": (12.9716, 77.5946),
+    "mumbai": (19.0760, 72.8777),
+    "delhi": (28.7041, 77.1025),
+    "delhi ncr": (28.7041, 77.1025),
+    "new delhi": (28.6139, 77.2090),
+    "hyderabad": (17.3850, 78.4867),
+    "pune": (18.5204, 73.8567),
+    "coimbatore": (11.0168, 76.9558),
+    "kolkata": (22.5726, 88.3639),
+    "ahmedabad": (23.0225, 72.5714),
+    "jaipur": (26.9124, 75.7873),
+    "kochi": (9.9312, 76.2673),
+}
+
+def resolve_coords(city_name: str, default=(13.0827, 80.2707)):
+    if not city_name:
+        return default
+    c = city_name.lower()
+    for k, v in CITY_COORDS.items():
+        if k in c:
+            return v
+    return default
+
     # 4. Create Linked Shipment (E2 Integration)
     ship_num = po_code.split('-')[-1]
     shipment_code = f"SHP-PO-{ship_num}"
     tracking_number = f"TRK-PO-{ship_num}"
-    origin = supplier.city if supplier.city else "Supplier Facility"
+    origin = f"{supplier.city} DC" if supplier.city else "Supplier Facility"
+    destination = purchase_request.delivery_location or po.delivery_location or "Bengaluru DC"
+    product_name = pr_item.product.name if pr_item.product else "Procured Equipment"
     
     shipment = Shipment(
         id=str(uuid.uuid4()),
@@ -92,7 +120,7 @@ def approve_supplier_and_create_po(db: Session, purchase_request: PurchaseReques
         purchase_order_reference=po_code,
         purchase_order_id=po.id,
         origin_location=origin,
-        destination_location=po.delivery_location,
+        destination_location=destination,
         status="IN_TRANSIT"
     )
     db.add(shipment)
@@ -100,13 +128,16 @@ def approve_supplier_and_create_po(db: Session, purchase_request: PurchaseReques
     
     # 5. Create Linked Truck (E2 Real-Time Simulation)
     eta = datetime.now(timezone.utc) + timedelta(days=selected_rec.lead_time_days)
+    origin_lat, origin_lng = resolve_coords(supplier.city, default=(13.0827, 80.2707))
+    
     truck = Truck(
         truck_code=f"TRK-{ship_num}",
         trailer_id=f"TRL-{ship_num}0",
         shipment_id=shipment.id,
         status="ASSIGNED",
-        current_lat=13.0827,
-        current_lng=80.2707,
+        load_type=product_name,
+        current_lat=origin_lat,
+        current_lng=origin_lng,
         progress_percent=0,
         original_eta=eta,
         current_eta=eta,

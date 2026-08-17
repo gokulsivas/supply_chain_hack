@@ -31,10 +31,41 @@ CARGO_POOL = [
 ]
 
 
+CITY_COORDS = {
+    "chennai": (13.0827, 80.2707),
+    "bengaluru": (12.9716, 77.5946),
+    "bangalore": (12.9716, 77.5946),
+    "mumbai": (19.0760, 72.8777),
+    "delhi": (28.7041, 77.1025),
+    "delhi ncr": (28.7041, 77.1025),
+    "new delhi": (28.6139, 77.2090),
+    "hyderabad": (17.3850, 78.4867),
+    "pune": (18.5204, 73.8567),
+    "coimbatore": (11.0168, 76.9558),
+    "kolkata": (22.5726, 88.3639),
+    "ahmedabad": (23.0225, 72.5714),
+    "jaipur": (26.9124, 75.7873),
+    "kochi": (9.9312, 76.2673),
+    "cochin": (9.9312, 76.2673),
+    "surat": (21.1702, 72.8311),
+    "lucknow": (26.8467, 80.9462),
+    "chandigarh": (30.7333, 76.7794),
+}
+
+def resolve_coords(city_name: str, default=(13.0827, 80.2707)):
+    if not city_name:
+        return default
+    c = str(city_name).lower()
+    for k, v in CITY_COORDS.items():
+        if k in c:
+            return v
+    return default
+
+
 def ensure_truck_metadata(truck: Truck, db: Session):
     # Dynamically inject legacy properties expected by frontend onto the SQLAlchemy model instance
     truck.truck_number = truck.truck_code
-    truck.cargo_type = truck.load_type
+    truck.cargo_type = truck.load_type or "Procured Goods"
     truck.progress = (truck.progress_percent or 0) / 100.0
     
     if truck.current_eta:
@@ -43,18 +74,16 @@ def ensure_truck_metadata(truck: Truck, db: Session):
         truck.eta = None
         
     if getattr(truck, "shipment", None):
-        truck.po_number = truck.shipment.purchase_order_reference
-        truck.origin_name = truck.shipment.origin_location
-        truck.dest_name = truck.shipment.destination_location
+        truck.po_number = truck.shipment.purchase_order_reference or "PO-2026-0042"
+        truck.origin_name = truck.shipment.origin_location or "Chennai DC"
+        truck.dest_name = truck.shipment.destination_location or "Bengaluru DC"
     else:
-        truck.po_number = "PO-UNKNOWN"
-        truck.origin_name = "Bengaluru Logistics Hub"
-        truck.dest_name = "Chennai DC Central"
+        truck.po_number = "PO-2026-0042"
+        truck.origin_name = "Chennai DC"
+        truck.dest_name = "Bengaluru DC"
         
-    truck.origin_lat = 12.9716
-    truck.origin_lng = 77.5946
-    truck.dest_lat = 13.0827
-    truck.dest_lng = 80.2707
+    truck.origin_lat, truck.origin_lng = resolve_coords(truck.origin_name, default=(13.0827, 80.2707))
+    truck.dest_lat, truck.dest_lng = resolve_coords(truck.dest_name, default=(12.9716, 77.5946))
 
     modified = False
     if not getattr(truck, "driver_name", None) or truck.driver_name in ["Unassigned", "Unknown", "None", ""]:
@@ -67,6 +96,8 @@ def ensure_truck_metadata(truck: Truck, db: Session):
         truck.load_type = CARGO_POOL[idx]
         truck.cargo_type = truck.load_type
         modified = True
+    else:
+        truck.cargo_type = truck.load_type
 
     prog = float(truck.progress_percent or 0) / 100.0
     if prog >= 1.0:

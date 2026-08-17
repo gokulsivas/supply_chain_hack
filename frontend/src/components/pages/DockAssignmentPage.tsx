@@ -45,30 +45,33 @@ interface DockDoor {
 
 const DEFAULT_TRUCKS: InboundTruck[] = [
   {
-    id: "trk-0003",
-    truck_number: "TRK-0003",
-    driver_name: "Ramesh Kumar (+91 98765 43210)",
-    cargo_type: "Industrial Brake Assemblies",
-    status: "DELIVERED",
-    po_number: "PO-2026-0003",
+    id: "trk-1042",
+    truck_number: "TRK-1042",
+    driver_name: "Rajan Kumar (+91 98450 11223)",
+    cargo_type: "Enterprise Laptops",
+    load_type: "Enterprise Laptops",
+    status: "ARRIVED",
+    po_number: "PO-2026-0042",
     priority: "HIGH",
   },
   {
-    id: "trk-1042",
-    truck_number: "TRK-1042",
-    driver_name: "Suresh Nair (+91 98450 11223)",
-    cargo_type: "Lithium Battery Cells",
-    status: "DELIVERED",
-    po_number: "PO-2026-0042",
-    priority: "CRITICAL",
+    id: "trk-1055",
+    truck_number: "TRK-1055",
+    driver_name: "Suresh Patel (+91 98765 43210)",
+    cargo_type: "Barcode Scanners",
+    load_type: "Barcode Scanners",
+    status: "IN_TRANSIT",
+    po_number: "PO-2026-0055",
+    priority: "NORMAL",
   },
   {
-    id: "trk-0004",
-    truck_number: "TRK-0004",
-    driver_name: "Vikas Sharma (+91 97123 45678)",
-    cargo_type: "Precision Machine Parts",
-    status: "IN_TRANSIT",
-    po_number: "PO-2026-0004",
+    id: "trk-1063",
+    truck_number: "TRK-1063",
+    driver_name: "Anita Singh (+91 97123 45678)",
+    cargo_type: "Industrial Packaging",
+    load_type: "Industrial Packaging",
+    status: "ARRIVED",
+    po_number: "PO-2026-0063",
     priority: "NORMAL",
   },
 ];
@@ -98,27 +101,55 @@ export function DockAssignmentPage() {
       dock.door_number ||
       dock.name ||
       dock.code ||
-      `D-0${idx + 1}`
+      `D-${String(idx + 1).padStart(2, "0")}`
     );
   };
 
   const getTruckLabel = (truck: InboundTruck) => {
-    return truck.truck_number || truck.truck_code || truck.code || truck.id || "TRK-0003";
+    return truck.truck_number || truck.truck_code || truck.code || truck.id || "TRK-1042";
   };
 
   const loadData = async () => {
     setIsLoading(true);
+    let localPOs: any[] = [];
+    try {
+      const stored = localStorage.getItem("local_purchase_orders");
+      if (stored) localPOs = JSON.parse(stored);
+    } catch {}
+
+    const localTrucks: InboundTruck[] = localPOs.map((po) => ({
+      id: po.logistics_truck || `trk-${po.id}`,
+      truck_number: po.logistics_truck || `TRK-${po.id}`,
+      driver_name: "Assigned Fleet Driver",
+      cargo_type: po.item_title || po.item || "Procured Equipment",
+      load_type: po.item_title || po.item || "Procured Equipment",
+      status: "IN_TRANSIT",
+      po_number: po.po_code || po.po_number || po.id,
+      priority: "HIGH",
+    }));
+
     try {
       const [truckRes, dockRes] = await Promise.allSettled([
         axios.get(`${API_BASE}/logistics/trucks`),
         axios.get(`${API_BASE}/logistics/docks`),
       ]);
 
+      const combinedMap = new Map<string, InboundTruck>();
+      localTrucks.forEach((t) => combinedMap.set(t.truck_number || t.id, t));
+
       if (truckRes.status === "fulfilled" && Array.isArray(truckRes.value.data) && truckRes.value.data.length > 0) {
-        setTrucks(truckRes.value.data);
-      } else {
-        setTrucks(DEFAULT_TRUCKS);
+        truckRes.value.data.forEach((t: any) => {
+          const key = t.truck_number || t.truck_code || t.id;
+          if (key && !combinedMap.has(key)) combinedMap.set(key, t);
+        });
       }
+
+      DEFAULT_TRUCKS.forEach((t) => {
+        const key = t.truck_number || t.id;
+        if (key && !combinedMap.has(key)) combinedMap.set(key, t);
+      });
+
+      setTrucks(Array.from(combinedMap.values()));
 
       if (dockRes.status === "fulfilled" && Array.isArray(dockRes.value.data) && dockRes.value.data.length > 0) {
         setDocks(dockRes.value.data);
