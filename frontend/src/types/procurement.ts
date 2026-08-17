@@ -123,13 +123,13 @@ export interface PurchaseOrderResponse {
   po_code: string;
   purchase_request_id: string;
   total_amount: number;
-  delivery_location: string;
+  delivery_location: string | null;
   expected_delivery_date: string;
   status: string;
   recommendation_score: number | null;
   created_at: string;
   
-  supplier: SupplierResponse;
+  supplier: SupplierResponse | null;
   items: PurchaseOrderItem[];
   shipment: POShipmentSummary | null;
   truck: POTruckSummary | null;

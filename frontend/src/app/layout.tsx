@@ -15,9 +15,11 @@ export const metadata: Metadata = {
     template: "%s | Supply Chain Control Tower",
   },
   description:
-    "Cognizant E2 + PR2 Supply Chain Control Tower — real-time logistics tracking, autonomous procurement, and intelligent finance.",
+    "Cognizant E2 + PR2 Supply Chain Control Tower â€” real-time logistics tracking, autonomous procurement, and intelligent finance.",
   robots: { index: false, follow: false },
 };
+
+import { AuthProvider } from "@/context/AuthContext";
 
 export default function RootLayout({
   children,
@@ -27,7 +29,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
         <Toaster position="top-right" richColors closeButton />
       </body>
     </html>

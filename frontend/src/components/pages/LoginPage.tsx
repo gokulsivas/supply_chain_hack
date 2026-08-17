@@ -2,281 +2,363 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { login, registerUser, isApiError } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
+import { z } from "zod";
+import { motion } from "framer-motion";
+import { login, register, extractApiError } from "@/lib/api";
 import { setToken, saveUser } from "@/lib/auth";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { ShieldCheck, Loader2, ArrowRight, UserPlus, LogIn, Sparkles } from "lucide-react";
-import { toast } from "sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ShieldCheck, Mail, LockKeyhole, User, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
+
+const loginSchema = z.object({
+  email: z.string().min(1, "Email is required").email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+
+const signupSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().min(1, "Email is required").email("Invalid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  confirmPassword: z.string().min(1, "Please confirm your password"),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+});
 
 export function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const { checkAuth } = useAuth();
   
-  // Form fields
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState("USER");
+  const [activeTab, setActiveTab] = useState<"signin" | "signup">("signin");
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [globalError, setGlobalError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [signupSuccess, setSignupSuccess] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Sign In State
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+
+  // Sign Up State
+  const [signupName, setSignupName] = useState("");
+  const [signupEmail, setSignupEmail] = useState("");
+  const [signupPassword, setSignupPassword] = useState("");
+  const [signupConfirm, setSignupConfirm] = useState("");
+
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    setGlobalError(null);
+    setFieldErrors({});
+
+    const result = loginSchema.safeParse({ email: loginEmail, password: loginPassword });
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach(issue => {
+        if (issue.path[0]) errors[String(issue.path[0])] = issue.message;
+      });
+      setFieldErrors(errors);
+      return;
+    }
+
     setIsLoading(true);
-    setErrorMsg(null);
-
     try {
-      if (mode === "signup") {
-        if (!name.trim()) {
-          setErrorMsg("Please enter your full name.");
-          setIsLoading(false);
-          return;
-        }
-        // Register in PostgreSQL & retrieve session token
-        const res = await registerUser({
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          password,
-          role,
-        });
+      const res = await login({
+        email: loginEmail.trim().toLowerCase(),
+        password: loginPassword,
+      });
 
-        setToken(res.access_token);
-        if (res.user) saveUser(res.user);
+      setToken(res.access_token);
+      if (res.user) saveUser(res.user);
 
-        toast.success(`Account created successfully! Welcome, ${name}.`);
-        router.push("/dashboard");
-      } else {
-        // Authenticate existing user
-        const res = await login({
-          email: email.trim().toLowerCase(),
-          password,
-        });
+      await checkAuth();
 
-        setToken(res.access_token);
-        if (res.user) saveUser(res.user);
-
-        toast.success("Signed in successfully!");
-        router.push("/dashboard");
-      }
+      router.push("/dashboard");
     } catch (err: any) {
-      if (isApiError(err)) {
-        setErrorMsg(err.detail || "Authentication failed. Please check your credentials.");
-      } else if (err.response?.data?.detail) {
-        setErrorMsg(err.response.data.detail);
-      } else {
-        setErrorMsg(mode === "signup" ? "User already exists or registration failed." : "Invalid email or password.");
-      }
+      setGlobalError(extractApiError(err));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setGlobalError(null);
+    setFieldErrors({});
+
+    const result = signupSchema.safeParse({
+      name: signupName,
+      email: signupEmail,
+      password: signupPassword,
+      confirmPassword: signupConfirm,
+    });
+    
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach(issue => {
+        if (issue.path[0]) errors[String(issue.path[0])] = issue.message;
+      });
+      setFieldErrors(errors);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // 1. Register the user
+      await register({
+        name: signupName.trim(),
+        email: signupEmail.trim().toLowerCase(),
+        password: signupPassword,
+      });
+
+      // 2. Auto-login on success
+      const loginRes = await login({
+        email: signupEmail.trim().toLowerCase(),
+        password: signupPassword,
+      });
+
+      setToken(loginRes.access_token);
+      if (loginRes.user) saveUser(loginRes.user);
+
+      await checkAuth();
+
+      setSignupSuccess(true);
+      router.push("/dashboard");
+    } catch (err: any) {
+      setGlobalError(extractApiError(err));
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
-      {/* Background Glow */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
-
-      <div className="max-w-md w-full relative z-10 space-y-6">
-        
-        {/* Brand Header */}
-        <div className="text-center space-y-2">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-500/30 mb-2">
-            <ShieldCheck className="size-6" strokeWidth={2} />
+    <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 p-4 md:p-8 font-sans text-slate-900">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="w-full max-w-[440px] z-10"
+      >
+        <div className="mb-8 text-center">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <div className="bg-indigo-100 p-2.5 rounded-xl shadow-sm">
+              <ShieldCheck className="w-7 h-7 text-indigo-600" />
+            </div>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">
-            Supply Chain Control Tower
-          </h1>
-          <p className="text-xs text-slate-400">
-            Autonomous Procure-to-Pay (PR2) & Live Fleet Tracker (E2)
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Supply Chain Control Tower</h1>
+          <p className="text-sm text-slate-500 mt-2 font-medium tracking-wide">Cognizant E2 + PR2</p>
         </div>
 
-        <Card className="border-slate-800 bg-slate-900/90 backdrop-blur-xl shadow-2xl text-slate-100">
-          <CardHeader className="pb-4">
-            
-            {/* Mode Switcher Tabs */}
-            <div className="grid grid-cols-2 p-1 bg-slate-950/80 rounded-lg border border-slate-800 mb-4">
-              <button
-                type="button"
-                onClick={() => { setMode("login"); setErrorMsg(null); }}
-                className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-md transition-all ${
-                  mode === "login" 
-                    ? "bg-blue-600 text-white shadow" 
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <LogIn className="size-3.5" /> Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => { setMode("signup"); setErrorMsg(null); }}
-                className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-md transition-all ${
-                  mode === "signup" 
-                    ? "bg-blue-600 text-white shadow" 
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <UserPlus className="size-3.5" /> Create Account
-              </button>
-            </div>
+        <Card className="border-slate-200 bg-white shadow-xl rounded-2xl overflow-hidden">
+          <Tabs 
+            value={activeTab} 
+            onValueChange={(val: string) => { 
+              setActiveTab(val as "signin" | "signup"); 
+              setGlobalError(null); 
+              setFieldErrors({}); 
+            }} 
+            className="w-full"
+          >
+            <CardHeader className="pb-4 pt-6 px-6">
+              <TabsList className="grid w-full grid-cols-2 bg-slate-100 p-1 rounded-lg">
+                <TabsTrigger 
+                  value="signin" 
+                  className="rounded-md text-sm font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm text-slate-600 py-1.5"
+                >
+                  Sign In
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="signup" 
+                  className="rounded-md text-sm font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm text-slate-600 py-1.5"
+                >
+                  Create Account
+                </TabsTrigger>
+              </TabsList>
+            </CardHeader>
 
-            <CardTitle className="text-lg font-bold text-white">
-              {mode === "login" ? "Welcome back" : "Register new operator"}
-            </CardTitle>
-            <CardDescription className="text-xs text-slate-400">
-              {mode === "login" 
-                ? "Enter your email and password to access the tower." 
-                : "Create a verified profile saved directly to your PostgreSQL database."}
-            </CardDescription>
-          </CardHeader>
-
-          <form onSubmit={handleSubmit}>
-            <CardContent className="space-y-4">
-              
-              {errorMsg && (
-                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-                  {errorMsg}
-                </div>
-              )}
-
-              {/* Full Name (Sign Up only) */}
-              {mode === "signup" && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="name" className="text-xs font-medium text-slate-300">
-                    Full Name
-                  </Label>
-                  <Input
-                    id="name"
-                    type="text"
-                    placeholder="e.g. Alex Morgan"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                    className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-600 focus-visible:ring-blue-500"
-                  />
-                </div>
-              )}
-
-              {/* Email */}
-              <div className="space-y-1.5">
-                <Label htmlFor="email" className="text-xs font-medium text-slate-300">
-                  Email Address
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="name@company.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-600 focus-visible:ring-blue-500"
-                />
-              </div>
-
-              {/* Password */}
-              <div className="space-y-1.5">
-                <Label htmlFor="password" className="text-xs font-medium text-slate-300">
-                  Password
-                </Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="bg-slate-950 border-slate-800 text-white placeholder:text-slate-600 focus-visible:ring-blue-500"
-                />
-              </div>
-
-              {/* Role Selector (Sign Up only) */}
-              {mode === "signup" && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-slate-300">Workspace Role</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setRole("USER")}
-                      className={`p-2 rounded-lg border text-xs text-left transition-all ${
-                        role === "USER" 
-                          ? "border-blue-500 bg-blue-500/10 text-white font-semibold" 
-                          : "border-slate-800 bg-slate-950 text-slate-400"
-                      }`}
-                    >
-                      <div className="font-medium">Operator (User)</div>
-                      <div className="text-[10px] text-slate-500">Requisitions & Tracking</div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRole("ADMIN")}
-                      className={`p-2 rounded-lg border text-xs text-left transition-all ${
-                        role === "ADMIN" 
-                          ? "border-blue-500 bg-blue-500/10 text-white font-semibold" 
-                          : "border-slate-800 bg-slate-950 text-slate-400"
-                      }`}
-                    >
-                      <div className="font-medium">Administrator</div>
-                      <div className="text-[10px] text-slate-500">Approvals & Payments</div>
-                    </button>
+            <TabsContent value="signin" className="m-0 focus-visible:outline-none focus-visible:ring-0">
+              <form onSubmit={handleSignIn} className="px-6 pb-6 pt-2">
+                <div className="space-y-4">
+                  {globalError && (
+                    <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-700">
+                      <AlertCircle className="h-4 w-4 text-red-600" />
+                      <AlertDescription className="ml-2 font-medium text-sm">{globalError}</AlertDescription>
+                    </Alert>
+                  )}
+                  {signupSuccess && !globalError && (
+                    <Alert className="bg-green-50 border-green-200 text-green-800">
+                      <ShieldCheck className="h-4 w-4 text-green-600" />
+                      <AlertDescription className="ml-2 font-medium text-sm">Account created successfully. Logging you in...</AlertDescription>
+                    </Alert>
+                  )}
+                  
+                  <div className="space-y-1.5">
+                    <Label htmlFor="signin-email" className="text-sm font-semibold text-slate-700">Email address</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <Input 
+                        id="signin-email"
+                        placeholder="name@example.com" 
+                        type="email" 
+                        autoComplete="email"
+                        className={`pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${fieldErrors.email ? 'border-red-300 focus-visible:ring-red-500' : ''}`}
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                        disabled={isLoading}
+                      />
+                    </div>
+                    {fieldErrors.email && <p className="text-xs font-medium text-red-600 mt-1">{fieldErrors.email}</p>}
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="signin-password" className="text-sm font-semibold text-slate-700">Password</Label>
+                    </div>
+                    <div className="relative">
+                      <LockKeyhole className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <Input 
+                        id="signin-password"
+                        type="password"
+                        autoComplete="current-password"
+                        placeholder="••••••••"
+                        className={`pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${fieldErrors.password ? 'border-red-300 focus-visible:ring-red-500' : ''}`}
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        disabled={isLoading}
+                      />
+                    </div>
+                    {fieldErrors.password && <p className="text-xs font-medium text-red-600 mt-1">{fieldErrors.password}</p>}
                   </div>
                 </div>
-              )}
-            </CardContent>
+                
+                <div className="mt-6 flex flex-col gap-4">
+                  <Button 
+                    type="submit" 
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 h-auto shadow-sm" 
+                    disabled={isLoading}
+                  >
+                    {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : (
+                      <>
+                        Sign In
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                  
+                  <div className="text-center text-xs text-slate-500 mt-2">
+                    <p className="font-medium">Demo Account:</p>
+                    <p className="font-mono mt-1 text-slate-600 bg-slate-100 inline-block px-2 py-1 rounded">gokul@supplychain.dev / pass1234</p>
+                  </div>
+                </div>
+              </form>
+            </TabsContent>
 
-            <CardFooter className="pt-2 flex flex-col gap-3">
-              <Button 
-                type="submit" 
-                disabled={isLoading}
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold h-10 shadow-lg shadow-blue-600/20"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="size-4 mr-2 animate-spin" />
-                    {mode === "signup" ? "Creating account..." : "Signing in..."}
-                  </>
-                ) : (
-                  <>
-                    {mode === "signup" ? "Complete Registration" : "Sign In to Dashboard"}
-                    <ArrowRight className="size-4 ml-1.5" />
-                  </>
-                )}
-              </Button>
-
-              <div className="text-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode(mode === "login" ? "signup" : "login");
-                    setErrorMsg(null);
-                  }}
-                  className="text-xs text-slate-400 hover:text-blue-400 transition-colors"
-                >
-                  {mode === "login" ? (
-                    <>Don&apos;t have an account? <span className="text-blue-400 font-semibold underline">Sign up</span></>
-                  ) : (
-                    <>Already registered? <span className="text-blue-400 font-semibold underline">Sign in</span></>
+            <TabsContent value="signup" className="m-0 focus-visible:outline-none focus-visible:ring-0">
+              <form onSubmit={handleSignUp} className="px-6 pb-6 pt-2">
+                <div className="space-y-4">
+                  {globalError && (
+                    <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-700">
+                      <AlertCircle className="h-4 w-4 text-red-600" />
+                      <AlertDescription className="ml-2 font-medium text-sm">{globalError}</AlertDescription>
+                    </Alert>
                   )}
-                </button>
-              </div>
-            </CardFooter>
-          </form>
+                  
+                  <div className="space-y-1.5">
+                    <Label htmlFor="signup-name" className="text-sm font-semibold text-slate-700">Full Name</Label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <Input 
+                        id="signup-name"
+                        placeholder="Jane Doe" 
+                        autoComplete="name"
+                        className={`pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${fieldErrors.name ? 'border-red-300 focus-visible:ring-red-500' : ''}`}
+                        value={signupName}
+                        onChange={(e) => setSignupName(e.target.value)}
+                        disabled={isLoading}
+                      />
+                    </div>
+                    {fieldErrors.name && <p className="text-xs font-medium text-red-600 mt-1">{fieldErrors.name}</p>}
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <Label htmlFor="signup-email" className="text-sm font-semibold text-slate-700">Email address</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <Input 
+                        id="signup-email"
+                        placeholder="name@example.com" 
+                        type="email" 
+                        autoComplete="email"
+                        className={`pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${fieldErrors.email ? 'border-red-300 focus-visible:ring-red-500' : ''}`}
+                        value={signupEmail}
+                        onChange={(e) => setSignupEmail(e.target.value)}
+                        disabled={isLoading}
+                      />
+                    </div>
+                    {fieldErrors.email && <p className="text-xs font-medium text-red-600 mt-1">{fieldErrors.email}</p>}
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <Label htmlFor="signup-password" className="text-sm font-semibold text-slate-700">Password</Label>
+                    <div className="relative">
+                      <LockKeyhole className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <Input 
+                        id="signup-password"
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder="Min. 6 characters"
+                        className={`pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${fieldErrors.password ? 'border-red-300 focus-visible:ring-red-500' : ''}`}
+                        value={signupPassword}
+                        onChange={(e) => setSignupPassword(e.target.value)}
+                        disabled={isLoading}
+                      />
+                    </div>
+                    {fieldErrors.password && <p className="text-xs font-medium text-red-600 mt-1">{fieldErrors.password}</p>}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="signup-confirm" className="text-sm font-semibold text-slate-700">Confirm Password</Label>
+                    <div className="relative">
+                      <LockKeyhole className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <Input 
+                        id="signup-confirm"
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder="Must match password"
+                        className={`pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-indigo-500 ${fieldErrors.confirmPassword ? 'border-red-300 focus-visible:ring-red-500' : ''}`}
+                        value={signupConfirm}
+                        onChange={(e) => setSignupConfirm(e.target.value)}
+                        disabled={isLoading}
+                      />
+                    </div>
+                    {fieldErrors.confirmPassword && <p className="text-xs font-medium text-red-600 mt-1">{fieldErrors.confirmPassword}</p>}
+                  </div>
+                </div>
+                
+                <div className="mt-6">
+                  <Button 
+                    type="submit" 
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 h-auto shadow-sm" 
+                    disabled={isLoading}
+                  >
+                    {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : (
+                      <>
+                        Create Account
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </TabsContent>
+          </Tabs>
         </Card>
-
-        {/* Demo Footer Note */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-3 text-center">
-          <p className="text-[11px] text-slate-400 flex items-center justify-center gap-1.5">
-            <Sparkles className="size-3 text-blue-400" />
-            <span>Database Authentication: Register any new user or sign in with existing credentials.</span>
-          </p>
-        </div>
-
-      </div>
+      </motion.div>
     </div>
   );
 }
-
-export default LoginPage;

@@ -42,28 +42,39 @@ Message:
 "{message}"
 """
 
+    # Normalize model string for Google GenAI SDK (e.g. google/gemma-4-31B-it -> gemma-4-31b-it)
+    model_name = settings.GEMINI_MODEL.strip()
+    if model_name.startswith("google/"):
+        model_name = model_name[7:]
+    if model_name.startswith("models/"):
+        model_name = model_name[7:]
+    model_name = model_name.lower()
+
     try:
         response = client.models.generate_content(
-            model=settings.GEMINI_MODEL,
+            model=model_name,
             contents=prompt,
         )
     except Exception as e:
-        raise GeminiServiceError("Failed to connect to Gemini API or received an invalid response.")
+        raise GeminiServiceError(f"Failed to connect to Gemma 31B API: {str(e)}")
 
     if not response.text:
-        raise GeminiServiceError("Gemini API returned an empty response.")
+        raise GeminiServiceError("Gemma API returned an empty response.")
 
     raw_text = response.text.strip()
     
-    # Strip markdown fences if present
-    if raw_text.startswith("```"):
+    # Extract JSON between markdown fences or bracket blocks
+    match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw_text)
+    if match:
+        raw_text = match.group(1).strip()
+    elif raw_text.startswith("```"):
         raw_text = re.sub(r"^```(?:json)?", "", raw_text)
         raw_text = re.sub(r"```$", "", raw_text).strip()
 
     try:
         extracted_data = json.loads(raw_text)
     except json.JSONDecodeError:
-        raise GeminiServiceError("Gemini API returned malformed JSON.")
+        raise GeminiServiceError("Gemma API returned malformed JSON.")
 
     try:
         # Validate against the Pydantic schema

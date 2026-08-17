@@ -56,6 +56,7 @@ app.include_router(auth_router.router, prefix="/api")
 app.include_router(logistics_router.router, prefix="/api")
 app.include_router(procurement_router.router, prefix="/api")
 app.include_router(suppliers_router.router, prefix="/api")
+app.include_router(suppliers_router.direct_router, prefix="/api")
 app.include_router(finance_router.router, prefix="/api")
 app.include_router(analytics_router.router, prefix="/api")
 

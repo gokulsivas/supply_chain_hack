@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Clock, FileText } from "lucide-react";
 
 interface RecentRequestsProps {
-  requests: any[];
+  requests?: any[];
   onSelectRequest?: (req: any) => void;
+  refreshTrigger?: number;
 }
 
 export function RecentRequests({ requests = [], onSelectRequest }: RecentRequestsProps) {

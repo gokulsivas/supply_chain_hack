@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Send, Loader2, Bot } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -10,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { ChatMessage } from "@/components/procurement/ChatMessage";
 import { RequisitionReviewCard } from "@/components/procurement/RequisitionReviewCard";
 import { RecentRequests } from "@/components/procurement/RecentRequests";
-import { extractRequisition, isApiError } from "@/lib/api";
+import { extractRequisition, listPurchaseRequests, isApiError } from "@/lib/api";
 import type { ExtractionResultResponse, PurchaseRequest } from "@/types/procurement";
 
 type Message = {
@@ -26,6 +27,7 @@ const SUGGESTIONS = [
 ];
 
 export function AIProcurementPage() {
+  const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "greeting",
@@ -37,6 +39,19 @@ export function AIProcurementPage() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [activeExtraction, setActiveExtraction] = useState<ExtractionResultResponse | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [recentRequests, setRecentRequests] = useState<any[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    listPurchaseRequests().then((data) => {
+      if (isMounted && Array.isArray(data)) {
+        setRecentRequests(data);
+      }
+    }).catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [refreshTrigger]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -81,7 +96,8 @@ export function AIProcurementPage() {
   };
 
   const handleCreated = (pr: PurchaseRequest) => {
-    toast.success("Purchase request created successfully.");
+    const reqIdentifier = pr.id || pr.request_code;
+    toast.success(`Purchase request ${pr.request_code || ''} created successfully! Redirecting to supplier selection...`);
     setActiveExtraction(null);
     setRefreshTrigger(prev => prev + 1);
     
@@ -90,9 +106,12 @@ export function AIProcurementPage() {
       {
         id: Date.now().toString(),
         role: "system",
-        content: `Purchase request ${pr.request_code} has been successfully validated and created.`
+        content: `Purchase request ${pr.request_code} has been successfully validated. Taking you to Supplier Intelligence...`
       }
     ]);
+
+    // Immediate navigation to supplier recommendation page
+    router.push(`/procurement/suppliers?reqId=${encodeURIComponent(reqIdentifier)}`);
   };
 
   return (
@@ -188,7 +207,7 @@ export function AIProcurementPage() {
             </AnimatePresence>
 
             <div className="flex-1">
-              <RecentRequests refreshTrigger={refreshTrigger} />
+              <RecentRequests requests={recentRequests} refreshTrigger={refreshTrigger} />
             </div>
           </div>
 

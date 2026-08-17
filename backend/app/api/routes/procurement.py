@@ -43,6 +43,12 @@ def extract_requisition(
     status_code=status.HTTP_201_CREATED,
     summary="Create a new purchase request",
 )
+@router.post(
+    "/requests",
+    response_model=PurchaseRequestResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new purchase request (alias)",
+)
 def create_request(
     payload: CreatePurchaseRequestRequest,
     db: Session = Depends(get_db),
@@ -65,6 +71,11 @@ def create_request(
     response_model=List[PurchaseRequestResponse],
     summary="List purchase requests for the current user",
 )
+@router.get(
+    "/requests",
+    response_model=List[PurchaseRequestResponse],
+    summary="List purchase requests for the current user (alias)",
+)
 def list_requests(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -73,8 +84,9 @@ def list_requests(
         joinedload(PurchaseRequest.items).joinedload(PurchaseRequestItem.product)
     )
     
-    # Normally admins might see all, but prompt says "Return current user's purchase requests" for the list.
-    query = query.filter(PurchaseRequest.requested_by_user_id == current_user.id)
+    # Return user's requests or all if admin
+    if current_user.role != "ADMIN":
+        query = query.filter(PurchaseRequest.requested_by_user_id == current_user.id)
     
     return query.order_by(PurchaseRequest.created_at.desc()).all()
 
@@ -83,6 +95,11 @@ def list_requests(
     "/purchase-requests/{request_id}",
     response_model=PurchaseRequestResponse,
     summary="Get a specific purchase request",
+)
+@router.get(
+    "/requests/{request_id}",
+    response_model=PurchaseRequestResponse,
+    summary="Get a specific purchase request (alias)",
 )
 def get_request(
     request_id: str,

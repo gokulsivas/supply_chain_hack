@@ -1,4 +1,8 @@
 import axios from "axios";
+import type { LoginRequest, RegisterRequest, LoginResponse, UserResponse } from "@/types/auth";
+import type { PurchaseOrderResponse } from "@/types/procurement";
+
+import { getToken } from "@/lib/auth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -7,13 +11,13 @@ export const apiClient = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 10000,
+  timeout: 60000,
 });
 
 // Auto-inject JWT token if stored
 apiClient.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
-    const token = localStorage.getItem("token") || localStorage.getItem("access_token");
+    const token = getToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -21,26 +25,46 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+export function extractApiError(err: any): string {
+  if (err?.response?.data?.detail) {
+    const detail = err.response.data.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail) && detail.length > 0 && detail[0].msg) return detail[0].msg;
+  }
+  if (err?.detail && typeof err.detail === 'string') {
+    return err.detail;
+  }
+  if (err?.message) {
+    return err.message;
+  }
+  return "An unexpected error occurred.";
+}
+
 export function isApiError(err: any): err is { detail: string } {
-  return Boolean(err && (err.detail || err.response?.data?.detail));
+  const extracted = extractApiError(err);
+  if (extracted !== "An unexpected error occurred.") {
+    err.detail = extracted;
+    return true;
+  }
+  return false;
 }
 
 // ══════════════════════════════════════════════════════════════════
 // 1. AUTHENTICATION
 // ══════════════════════════════════════════════════════════════════
 
-export async function login(credentials: any) {
+export async function login(credentials: LoginRequest): Promise<LoginResponse> {
   const res = await apiClient.post("/auth/login", credentials);
   return res.data;
 }
 
-export async function registerUser(userData: any) {
+export async function registerUser(userData: RegisterRequest): Promise<UserResponse> {
   const res = await apiClient.post("/auth/register", userData);
   return res.data;
 }
 export const register = registerUser;
 
-export async function getCurrentUser() {
+export async function getCurrentUser(): Promise<UserResponse> {
   const res = await apiClient.get("/auth/me");
   return res.data;
 }
@@ -52,21 +76,21 @@ export const getMe = getCurrentUser;
 // ══════════════════════════════════════════════════════════════════
 
 export async function extractRequisition(message: string) {
-  const res = await apiClient.post("/procurement/extract", { message });
+  const res = await apiClient.post("/procurement/extract", { message }, { timeout: 60000 });
   return res.data;
 }
 export const extractProcurementRequest = extractRequisition;
 export const extractRequisitionDetails = extractRequisition;
 
 export async function createPurchaseRequest(requestData: any) {
-  const res = await apiClient.post("/procurement/requests", requestData);
+  const res = await apiClient.post("/procurement/purchase-requests", requestData);
   return res.data;
 }
 export const createPurchaseRequisition = createPurchaseRequest;
 
 export async function listPurchaseRequests() {
   try {
-    const res = await apiClient.get("/procurement/requests");
+    const res = await apiClient.get("/procurement/purchase-requests");
     if (Array.isArray(res.data) && res.data.length > 0) return res.data;
   } catch {}
   return [
@@ -100,29 +124,105 @@ export const listRecentRequests = listPurchaseRequests;
 
 export async function getSuppliers() {
   try {
-    const res = await apiClient.get("/suppliers");
+    const res = await apiClient.get("/procurement/suppliers");
     if (Array.isArray(res.data) && res.data.length > 0) return res.data;
   } catch {}
   return [
     {
       id: "sup-1",
-      name: "Precision Tech Components",
+      supplier_code: "SUP-001",
+      name: "TechSource India (Chennai)",
       category: "IT_HARDWARE",
-      esg_score: 94,
+      city: "Chennai",
+      esg_score: 96,
+      reliability_score: 96,
+      lead_time_days: 5,
+      unit_price: 48000,
+      risk_level: "LOW",
+    },
+    {
+      id: "sup-3",
+      supplier_code: "SUP-003",
+      name: "Prime Systems (Bengaluru)",
+      category: "IT_HARDWARE",
+      city: "Bengaluru",
+      esg_score: 98,
       reliability_score: 98,
+      lead_time_days: 4,
+      unit_price: 50000,
+      risk_level: "LOW",
+    },
+    {
+      id: "sup-4",
+      supplier_code: "SUP-004",
+      name: "Apex Global Sourcing (Hyderabad)",
+      category: "IT_HARDWARE",
+      city: "Hyderabad",
+      esg_score: 95,
+      reliability_score: 95,
       lead_time_days: 3,
-      unit_price: 52000,
+      unit_price: 47500,
+      risk_level: "LOW",
+    },
+    {
+      id: "sup-7",
+      supplier_code: "SUP-007",
+      name: "Precision Sensor Corp (Delhi NCR)",
+      category: "BARCODE_SCANNER",
+      city: "Delhi NCR",
+      esg_score: 97,
+      reliability_score: 97,
+      lead_time_days: 3,
+      unit_price: 13500,
+      risk_level: "LOW",
+    },
+    {
+      id: "sup-5",
+      supplier_code: "SUP-005",
+      name: "NexGen Electronics (Pune)",
+      category: "IT_HARDWARE",
+      city: "Pune",
+      esg_score: 92,
+      reliability_score: 92,
+      lead_time_days: 6,
+      unit_price: 49000,
+      risk_level: "LOW",
+    },
+    {
+      id: "sup-6",
+      supplier_code: "SUP-006",
+      name: "GreenPack Eco Materials (Coimbatore)",
+      category: "PACKAGING",
+      city: "Coimbatore",
+      esg_score: 99,
+      reliability_score: 96,
+      lead_time_days: 5,
+      unit_price: 2400,
       risk_level: "LOW",
     },
     {
       id: "sup-2",
-      name: "Global Industrial Logistics Ltd",
-      category: "PACKAGING",
+      supplier_code: "SUP-002",
+      name: "Value IT Supplies (Mumbai)",
+      category: "IT_HARDWARE",
+      city: "Mumbai",
       esg_score: 88,
-      reliability_score: 92,
-      lead_time_days: 5,
-      unit_price: 4800,
-      risk_level: "LOW",
+      reliability_score: 88,
+      lead_time_days: 7,
+      unit_price: 46000,
+      risk_level: "MEDIUM",
+    },
+    {
+      id: "sup-8",
+      supplier_code: "SUP-008",
+      name: "OmniDirect Industrial (Kolkata)",
+      category: "PACKAGING",
+      city: "Kolkata",
+      esg_score: 89,
+      reliability_score: 91,
+      lead_time_days: 8,
+      unit_price: 2100,
+      risk_level: "MEDIUM",
     },
   ];
 }
@@ -130,29 +230,75 @@ export const listSuppliers = getSuppliers;
 
 export async function getPurchaseRequestSupplierRecommendations(requestId: string) {
   try {
-    const res = await apiClient.get(`/procurement/requests/${requestId}/recommendations`);
+    const res = await apiClient.get(`/procurement/purchase-requests/${requestId}/supplier-recommendations`);
     if (Array.isArray(res.data) && res.data.length > 0) return res.data;
   } catch {}
   return [
     {
-      supplier_id: "sup-1",
-      supplier_name: "Precision Tech Components",
+      supplier_id: "SUP-001",
+      supplier_name: "TechSource India (Chennai)",
       match_score: 96.5,
       confidence_score: 0.98,
-      quoted_price: 2600000,
-      delivery_days: 4,
+      quoted_price: 2400000,
+      delivery_days: 5,
       esg_rating: "A+",
-      recommendation_reason: "Top-ranked supplier with 99.2% on-time delivery record and full ISO compliance.",
+      reliability_score: 96,
+      recommendation_reason: "Best overall balance with lowest total cost, high on-time delivery, and optimal ISO ESG compliance.",
     },
     {
-      supplier_id: "sup-2",
-      supplier_name: "NexGen Electronics Hub",
-      match_score: 89.2,
-      confidence_score: 0.91,
-      quoted_price: 2680000,
+      supplier_id: "SUP-003",
+      supplier_name: "Prime Systems (Bengaluru)",
+      match_score: 94.2,
+      confidence_score: 0.95,
+      quoted_price: 2500000,
+      delivery_days: 4,
+      esg_rating: "A",
+      reliability_score: 98,
+      recommendation_reason: "Fastest local delivery with highest historical quality rating (98%) and local Bengaluru warehouse hub.",
+    },
+    {
+      supplier_id: "SUP-004",
+      supplier_name: "Apex Global Sourcing (Hyderabad)",
+      match_score: 93.8,
+      confidence_score: 0.94,
+      quoted_price: 2375000,
+      delivery_days: 3,
+      esg_rating: "A+",
+      reliability_score: 95,
+      recommendation_reason: "Ultra-fast 72-hour air dispatch route with enterprise SLA and guaranteed buffer availability.",
+    },
+    {
+      supplier_id: "SUP-007",
+      supplier_name: "Precision Sensor Corp (Delhi NCR)",
+      match_score: 91.5,
+      confidence_score: 0.93,
+      quoted_price: 2550000,
+      delivery_days: 3,
+      esg_rating: "A+",
+      reliability_score: 97,
+      recommendation_reason: "ISO-9001 certified components with zero defect tolerance and automated IoT verification.",
+    },
+    {
+      supplier_id: "SUP-005",
+      supplier_name: "NexGen Electronics (Pune)",
+      match_score: 88.0,
+      confidence_score: 0.90,
+      quoted_price: 2450000,
       delivery_days: 6,
       esg_rating: "A",
-      recommendation_reason: "Reliable tier-1 backup supplier with competitive volume discounts.",
+      reliability_score: 92,
+      recommendation_reason: "Reliable secondary tier-1 supplier with competitive volume discounts.",
+    },
+    {
+      supplier_id: "SUP-006",
+      supplier_name: "GreenPack Eco Materials (Coimbatore)",
+      match_score: 86.4,
+      confidence_score: 0.89,
+      quoted_price: 2350000,
+      delivery_days: 5,
+      esg_rating: "AAA",
+      reliability_score: 96,
+      recommendation_reason: "Industry leader in 100% circular recycled materials with highest sustainability benchmark rating.",
     },
   ];
 }
@@ -160,7 +306,7 @@ export const getSupplierRecommendations = getPurchaseRequestSupplierRecommendati
 
 export async function approveSupplier(requestId: string, payload?: any) {
   try {
-    const res = await apiClient.post(`/procurement/requests/${requestId}/approve-supplier`, payload || {});
+    const res = await apiClient.post(`/procurement/purchase-requests/${requestId}/approve-supplier`, payload || {});
     return res.data;
   } catch {
     return {
@@ -177,23 +323,9 @@ export async function createPurchaseOrder(poData: any) {
   return res.data;
 }
 
-export async function listPurchaseOrders() {
-  try {
-    const res = await apiClient.get("/procurement/purchase-orders");
-    if (Array.isArray(res.data) && res.data.length > 0) return res.data;
-  } catch {}
-  return [
-    {
-      id: "PO-2026-0003",
-      po_number: "PO-2026-0003",
-      supplier_name: "Precision Tech Components",
-      item_title: "Industrial Brake Assemblies",
-      quantity: 100,
-      total_amount: 450000,
-      status: "CONFIRMED",
-      created_at: new Date().toISOString(),
-    },
-  ];
+export async function listPurchaseOrders(): Promise<PurchaseOrderResponse[]> {
+  const res = await apiClient.get("/procurement/purchase-orders");
+  return res.data;
 }
 export const getPurchaseOrders = listPurchaseOrders;
 
@@ -355,6 +487,11 @@ export async function simulateTruckStep(truckId: string) {
   return res.data;
 }
 export const simulateStep = simulateTruckStep;
+
+export async function simulateAllTrucks() {
+  const res = await apiClient.post("/logistics/simulate-all");
+  return res.data;
+}
 
 export async function injectTruckDelay(truckId: string) {
   const res = await apiClient.post(`/logistics/trucks/${truckId}/inject-delay`);

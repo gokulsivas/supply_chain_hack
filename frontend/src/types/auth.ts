@@ -1,10 +1,19 @@
 // ── Auth types ───────────────────────────────────────────────────
 
-export interface User {
+export interface UserResponse {
   id: string;
-  email: string;
   name: string;
-  role: "admin" | "manager" | "viewer" | "PROCUREMENT_USER" | string;
+  email: string;
+  role: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserInToken {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
 }
 
 export interface LoginRequest {
@@ -12,10 +21,16 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface RegisterRequest {
+  name: string;
+  email: string;
+  password: string;
+}
+
 export interface LoginResponse {
   access_token: string;
   token_type: string;
-  user: User;
+  user: UserInToken;
 }
 
 export interface ApiErrorResponse {

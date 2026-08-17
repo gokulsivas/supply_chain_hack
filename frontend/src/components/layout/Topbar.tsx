@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useRouter } from "next/navigation";
 import { Bell, CheckCircle2, LogOut, User } from "lucide-react";
@@ -63,24 +63,22 @@ export function Topbar({ title }: TopbarProps) {
 
       {/* User menu */}
       <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Open user menu"
-              className="rounded-full"
-            />
-          }
-        >
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Open user menu"
+            className="rounded-full"
+          >
           <Avatar size="sm">
             <AvatarFallback aria-hidden="true">
               <User className="size-3.5" />
             </AvatarFallback>
           </Avatar>
+          </Button>
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+        <DropdownMenuContent sideOffset={6}>
           <DropdownMenuLabel>
             <div className="flex flex-col">
               <span className="font-medium text-foreground">Operator</span>
@@ -91,7 +89,7 @@ export function Topbar({ title }: TopbarProps) {
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            variant="destructive"
+            className="text-red-600 focus:bg-red-100 dark:focus:bg-red-900/50"
             onClick={handleLogout}
           >
             <LogOut className="size-4" aria-hidden="true" />

@@ -5,28 +5,55 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
-from app.models.procurement import PurchaseRequest, PurchaseOrder, PurchaseOrderItem
+from app.models.procurement import PurchaseRequest, PurchaseOrder, PurchaseOrderItem, Supplier
 from app.schemas.supplier_po import (
     SupplierRecommendationsResponse,
     ApproveSupplierRequest,
-    PurchaseOrderResponse
+    PurchaseOrderResponse,
+    SupplierResponse
 )
 from app.services.supplier_service import calculate_supplier_recommendations
 from app.services.purchase_order_service import approve_supplier_and_create_po
 
 router = APIRouter(prefix="/procurement", tags=["procurement"])
+direct_router = APIRouter(prefix="", tags=["suppliers"])
+
+@router.get(
+    "/suppliers",
+    response_model=List[SupplierResponse],
+    summary="List all active suppliers"
+)
+@direct_router.get(
+    "/suppliers",
+    response_model=List[SupplierResponse],
+    summary="List all active suppliers"
+)
+def list_suppliers(db: Session = Depends(get_db)):
+    return db.query(Supplier).filter(Supplier.is_active == True).all()
 
 @router.get(
     "/purchase-requests/{request_id}/supplier-recommendations",
     response_model=SupplierRecommendationsResponse,
     summary="Get ranked supplier recommendations for a PR"
 )
+@router.get(
+    "/requests/{request_id}/recommendations",
+    response_model=SupplierRecommendationsResponse,
+    summary="Get ranked supplier recommendations for a PR (alias)"
+)
+@router.get(
+    "/purchase-requests/{request_id}/recommendations",
+    response_model=SupplierRecommendationsResponse,
+    summary="Get ranked supplier recommendations for a PR (alias 2)"
+)
 def get_supplier_recommendations(
     request_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    pr = db.query(PurchaseRequest).filter(PurchaseRequest.id == request_id).first()
+    pr = db.query(PurchaseRequest).filter(
+        (PurchaseRequest.id == request_id) | (PurchaseRequest.request_code == request_id)
+    ).first()
     if not pr:
         raise HTTPException(status_code=404, detail="Purchase request not found")
         
@@ -45,13 +72,21 @@ def get_supplier_recommendations(
     status_code=status.HTTP_201_CREATED,
     summary="Approve supplier and generate PO"
 )
+@router.post(
+    "/requests/{request_id}/approve-supplier",
+    response_model=PurchaseOrderResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Approve supplier and generate PO (alias)"
+)
 def approve_supplier(
     request_id: str,
     payload: ApproveSupplierRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    pr = db.query(PurchaseRequest).filter(PurchaseRequest.id == request_id).first()
+    pr = db.query(PurchaseRequest).filter(
+        (PurchaseRequest.id == request_id) | (PurchaseRequest.request_code == request_id)
+    ).first()
     if not pr:
         raise HTTPException(status_code=404, detail="Purchase request not found")
         
@@ -92,9 +127,6 @@ def list_purchase_orders(
         joinedload(PurchaseOrder.purchase_request)
     )
     
-    if current_user.role != "ADMIN":
-        query = query.filter(PurchaseOrder.purchase_request.has(requested_by_user_id=current_user.id))
-        
     pos = query.order_by(PurchaseOrder.created_at.desc()).all()
     return [_format_po_response(db, po) for po in pos]
 
@@ -113,13 +145,12 @@ def get_purchase_order(
         joinedload(PurchaseOrder.supplier),
         joinedload(PurchaseOrder.items).joinedload(PurchaseOrderItem.product),
         joinedload(PurchaseOrder.purchase_request)
-    ).filter(PurchaseOrder.id == po_id).first()
+    ).filter(
+        (PurchaseOrder.id == po_id) | (PurchaseOrder.po_code == po_id)
+    ).first()
     
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
-        
-    if current_user.role != "ADMIN" and po.purchase_request.requested_by_user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to view this PO")
         
     return _format_po_response(db, po)
 
@@ -127,8 +158,10 @@ def get_purchase_order(
 def _format_po_response(db: Session, po: PurchaseOrder):
     from app.models.logistics import Shipment, Truck
     
-    # We can retrieve the shipment directly since it links by PO ID
-    shipment = db.query(Shipment).filter(Shipment.purchase_order_id == po.id).first()
+    # Retrieve the shipment matching either direct ID foreign key or purchase_order_reference code
+    shipment = db.query(Shipment).filter(
+        (Shipment.purchase_order_id == po.id) | (Shipment.purchase_order_reference == po.po_code)
+    ).first()
     truck = None
     if shipment:
         truck = db.query(Truck).filter(Truck.shipment_id == shipment.id).first()

@@ -8,6 +8,7 @@ export interface ShipmentInfo {
   status: string;
   created_at: string;
   updated_at: string;
+  shipment?: ShipmentInfo | null;
 }
 
 export interface TruckPosition {
@@ -26,6 +27,7 @@ export interface TruckPosition {
   delay_minutes: number;
   shipment_id: string;
   updated_at: string;
+  shipment?: ShipmentInfo | null;
 }
 
 export interface LogisticsAlert {
@@ -39,7 +41,6 @@ export interface LogisticsAlert {
 }
 
 export interface TrackingSearchResponse {
-  shipment: ShipmentInfo;
   truck: TruckPosition;
   alerts: LogisticsAlert[];
 }
@@ -89,3 +90,4 @@ export interface DockRecommendationResponse {
 }
 
 export type DockAlertResponse = LogisticsAlert;
+

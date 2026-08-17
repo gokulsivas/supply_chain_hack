@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from sqlalchemy import func
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User, UserRole
@@ -13,7 +14,7 @@ from app.schemas.auth import TokenResponse, UserCreate, UserInToken, UserLogin, 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-# ── POST /auth/register ───────────────────────────────────────────
+# â”€â”€ POST /auth/register â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post(
     "/register",
@@ -57,7 +58,7 @@ def register(payload: UserCreate, db: Session = Depends(get_db)) -> User:
     return user
 
 
-# ── POST /auth/login ──────────────────────────────────────────────
+# â”€â”€ POST /auth/login â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post(
     "/login",
@@ -105,7 +106,7 @@ def login(payload: UserLogin, db: Session = Depends(get_db)) -> TokenResponse:
     )
 
 
-# ── GET /auth/me ──────────────────────────────────────────────────
+# â”€â”€ GET /auth/me â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get(
     "/me",

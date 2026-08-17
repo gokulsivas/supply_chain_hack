@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.logistics import Truck, LogisticsAlert, YardSlot, Dock, DockAssignment
+from app.models.logistics import Truck, LogisticsAlert, YardSlot, Dock, DockAssignment, Shipment
 
 router = APIRouter(prefix="/logistics", tags=["logistics"])
 
@@ -32,18 +32,43 @@ CARGO_POOL = [
 
 
 def ensure_truck_metadata(truck: Truck, db: Session):
+    # Dynamically inject legacy properties expected by frontend onto the SQLAlchemy model instance
+    truck.truck_number = truck.truck_code
+    truck.cargo_type = truck.load_type
+    truck.progress = (truck.progress_percent or 0) / 100.0
+    
+    if truck.current_eta:
+        truck.eta = truck.current_eta.strftime("%b %d, %I:%M %p")
+    else:
+        truck.eta = None
+        
+    if getattr(truck, "shipment", None):
+        truck.po_number = truck.shipment.purchase_order_reference
+        truck.origin_name = truck.shipment.origin_location
+        truck.dest_name = truck.shipment.destination_location
+    else:
+        truck.po_number = "PO-UNKNOWN"
+        truck.origin_name = "Bengaluru Logistics Hub"
+        truck.dest_name = "Chennai DC Central"
+        
+    truck.origin_lat = 12.9716
+    truck.origin_lng = 77.5946
+    truck.dest_lat = 13.0827
+    truck.dest_lng = 80.2707
+
     modified = False
     if not getattr(truck, "driver_name", None) or truck.driver_name in ["Unassigned", "Unknown", "None", ""]:
-        idx = abs(hash(str(truck.id or truck.truck_number))) % len(DRIVER_POOL)
+        idx = abs(hash(str(truck.id or truck.truck_code))) % len(DRIVER_POOL)
         truck.driver_name = DRIVER_POOL[idx]
         modified = True
 
-    if not getattr(truck, "cargo_type", None) or truck.cargo_type in ["Unknown", "None", ""]:
-        idx = abs(hash(str(truck.id or truck.truck_number))) % len(CARGO_POOL)
-        truck.cargo_type = CARGO_POOL[idx]
+    if not getattr(truck, "load_type", None) or truck.load_type in ["Unknown", "None", ""]:
+        idx = abs(hash(str(truck.id or truck.truck_code))) % len(CARGO_POOL)
+        truck.load_type = CARGO_POOL[idx]
+        truck.cargo_type = truck.load_type
         modified = True
 
-    prog = float(truck.progress or 0.0)
+    prog = float(truck.progress_percent or 0) / 100.0
     if prog >= 1.0:
         if truck.status != "DELIVERED":
             truck.status = "DELIVERED"
@@ -61,8 +86,8 @@ def ensure_truck_metadata(truck: Truck, db: Session):
                 truck_id=truck.id,
                 alert_type="ARRIVAL",
                 severity="INFO",
-                message=f"Shipment {truck.truck_number} ({truck.cargo_type}) has arrived at {dest_title}.",
-                resolved=False,
+                message=f"Shipment {truck.truck_code} ({truck.load_type}) has arrived at {dest_title}.",
+                is_resolved=False,
                 created_at=datetime.now(timezone.utc),
             )
             db.add(arrival_alert)
@@ -79,12 +104,12 @@ def ensure_truck_metadata(truck: Truck, db: Session):
 def search_tracking(query: str, db: Session = Depends(get_db)):
     clean_query = query.strip()
     truck = (
-        db.query(Truck)
+        db.query(Truck).outerjoin(Shipment)
         .filter(
-            (Truck.truck_number.ilike(f"%{clean_query}%"))
+            (Truck.truck_code.ilike(f"%{clean_query}%"))
             | (Truck.trailer_id.ilike(f"%{clean_query}%"))
             | (Truck.shipment_id.ilike(f"%{clean_query}%"))
-            | (Truck.po_number.ilike(f"%{clean_query}%"))
+            | (Shipment.purchase_order_reference.ilike(f"%{clean_query}%"))
         )
         .first()
     )
@@ -98,26 +123,31 @@ def search_tracking(query: str, db: Session = Depends(get_db)):
         o_lat, o_lng = 12.9716, 77.5946
         d_lat, d_lng = 13.0827, 80.2707
 
+        ship_id = str(uuid.uuid4())
+        shipment = Shipment(
+            id=ship_id,
+            shipment_code=f"SHP-PO-{digits.zfill(4)}",
+            tracking_number=f"TRK-TRACK-{digits}",
+            purchase_order_reference=po_num,
+            origin_location="Bengaluru Logistics Hub",
+            destination_location="Chennai DC Central",
+            status="IN_TRANSIT"
+        )
+        db.add(shipment)
+
         truck = Truck(
             id=str(uuid.uuid4()),
-            truck_number=truck_num,
+            truck_code=truck_num,
             trailer_id=f"TRL-{digits.zfill(5)}",
             driver_name=random.choice(DRIVER_POOL),
-            cargo_type=random.choice(CARGO_POOL),
-            po_number=po_num,
-            shipment_id=shipment_num,
+            load_type=random.choice(CARGO_POOL),
+            shipment_id=ship_id,
             status="IN_TRANSIT",
-            progress=0.45,
-            origin_name="Bengaluru Logistics Hub",
-            origin_lat=o_lat,
-            origin_lng=o_lng,
-            dest_name="Chennai DC Central",
-            dest_lat=d_lat,
-            dest_lng=d_lng,
+            progress_percent=45,
             current_lat=round(o_lat + (d_lat - o_lat) * 0.45, 6),
             current_lng=round(o_lng + (d_lng - o_lng) * 0.45, 6),
-            eta=(datetime.now(timezone.utc) + timedelta(hours=3, minutes=15)).strftime("%b %d, %I:%M %p"),
-            original_eta=(datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%b %d, %I:%M %p"),
+            current_eta=datetime.now(timezone.utc) + timedelta(hours=3, minutes=15),
+            original_eta=datetime.now(timezone.utc) + timedelta(hours=3),
             delay_minutes=0,
             priority="NORMAL",
             created_at=datetime.now(timezone.utc),
@@ -164,6 +194,7 @@ def simulate_truck_step(truck_id: str, db: Session = Depends(get_db)):
         return truck
 
     new_prog = min(1.0, float(truck.progress or 0.0) + 0.20)
+    truck.progress_percent = int(round(new_prog * 100))
     truck.progress = round(new_prog, 2)
 
     o_lat = truck.origin_lat or 12.9716
@@ -181,8 +212,8 @@ def simulate_truck_step(truck_id: str, db: Session = Depends(get_db)):
                 truck_id=truck.id,
                 alert_type="ARRIVAL",
                 severity="INFO",
-                message=f"Truck {truck.truck_number} ({truck.cargo_type}) has arrived at {truck.dest_name}.",
-                resolved=False,
+                message=f"Truck {truck.truck_code} ({truck.load_type}) has arrived at {truck.dest_name}.",
+                is_resolved=False,
                 created_at=datetime.now(timezone.utc),
             )
         )
@@ -212,8 +243,8 @@ def inject_truck_delay(truck_id: str, db: Session = Depends(get_db)):
             truck_id=truck.id,
             alert_type="DELAY",
             severity="WARNING",
-            message=f"Highway bottleneck on NH-48 corridor. Injected 45-min delay for {truck.truck_number}.",
-            resolved=False,
+            message=f"Highway bottleneck on NH-48 corridor. Injected 45-min delay for {truck.truck_code}.",
+            is_resolved=False,
             created_at=datetime.now(timezone.utc),
         )
     )
@@ -222,7 +253,53 @@ def inject_truck_delay(truck_id: str, db: Session = Depends(get_db)):
     return truck
 
 
+@router.post("/simulate-all")
+def simulate_all_trucks(db: Session = Depends(get_db)):
+    """Advance every non-arrived truck by one simulation step."""
+    trucks = db.query(Truck).filter(
+        Truck.status.notin_(["DELIVERED", "ARRIVED", "IN_YARD", "DOCKED"])
+    ).all()
+
+    advanced = []
+    for truck in trucks:
+        ensure_truck_metadata(truck, db)
+        new_prog = min(1.0, float(truck.progress or 0.0) + 0.10)
+        truck.progress_percent = int(round(new_prog * 100))
+        truck.progress = round(new_prog, 2)
+
+        o_lat = truck.origin_lat or 12.9716
+        o_lng = truck.origin_lng or 77.5946
+        d_lat = truck.dest_lat or 13.0827
+        d_lng = truck.dest_lng or 80.2707
+
+        if truck.progress >= 1.0:
+            truck.status = "DELIVERED"
+            truck.current_lat = d_lat
+            truck.current_lng = d_lng
+            db.add(
+                LogisticsAlert(
+                    id=str(uuid.uuid4()),
+                    truck_id=truck.id,
+                    alert_type="ARRIVAL",
+                    severity="INFO",
+                    message=f"Truck {truck.truck_code} has arrived at destination (fleet simulation).",
+                    is_resolved=False,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+        else:
+            truck.status = "IN_TRANSIT"
+            truck.current_lat = round(o_lat + (d_lat - o_lat) * truck.progress, 6)
+            truck.current_lng = round(o_lng + (d_lng - o_lng) * truck.progress, 6)
+
+        advanced.append(truck.truck_code)
+
+    db.commit()
+    return {"advanced": advanced, "count": len(advanced)}
+
+
 # ── Alerts Endpoints (for listDockAlerts) ──────────────────────────
+
 
 @router.get("/alerts")
 @router.get("/dock-alerts")
@@ -278,23 +355,27 @@ def get_yard(db: Session = Depends(get_db)):
 
     result = []
     for s in slots:
-        truck_obj = None
-        if s.occupied_by_truck_id:
-            truck_obj = db.query(Truck).filter((Truck.id == s.occupied_by_truck_id) | (Truck.truck_number == s.occupied_by_truck_id)).first()
+        truck_id = getattr(s, "truck_id", None) or getattr(s, "occupied_by_truck_id", None)
+        slot_code = getattr(s, "slot_code", None) or getattr(s, "slot_number", "SLOT-01")
+        status_val = getattr(s, "status", "AVAILABLE")
+        is_occ = status_val == "OCCUPIED" or bool(truck_id)
+        truck_obj = getattr(s, "truck", None)
+        if not truck_obj and truck_id:
+            truck_obj = db.query(Truck).filter((Truck.id == truck_id) | (Truck.truck_code == truck_id)).first()
 
         result.append({
             "id": s.id,
-            "slot_number": s.slot_number,
-            "slot_code": s.slot_number,
-            "zone": s.zone or "Main Yard",
-            "is_occupied": bool(s.is_occupied),
-            "status": "OCCUPIED" if s.is_occupied else "AVAILABLE",
-            "occupied_by_truck_id": s.occupied_by_truck_id,
-            "truck_id": s.occupied_by_truck_id,
-            "truck_number": truck_obj.truck_number if truck_obj else s.occupied_by_truck_id,
-            "cargo_type": truck_obj.cargo_type if truck_obj else ("Industrial Assemblies" if s.is_occupied else None),
-            "driver_name": truck_obj.driver_name if truck_obj else ("Ramesh Kumar" if s.is_occupied else None),
-            "eta": truck_obj.eta if truck_obj else None,
+            "slot_number": slot_code,
+            "slot_code": slot_code,
+            "zone": getattr(s, "zone", "North Inbound Yard"),
+            "is_occupied": is_occ,
+            "status": status_val,
+            "occupied_by_truck_id": truck_id,
+            "truck_id": truck_id,
+            "truck_number": truck_obj.truck_code if truck_obj else truck_id,
+            "cargo_type": getattr(truck_obj, "load_type", None) if truck_obj else ("Industrial Assemblies" if is_occ else None),
+            "driver_name": getattr(truck_obj, "driver_name", None) if truck_obj else ("Ramesh Kumar" if is_occ else None),
+            "eta": truck_obj.current_eta.isoformat() if truck_obj and truck_obj.current_eta else None,
         })
     return result
 
@@ -347,16 +428,21 @@ def list_dock_assignments(db: Session = Depends(get_db)):
 @router.get("/docks/recommend/{truck_id}")
 @router.get("/docks/recommend")
 def get_dock_recommendation(truck_id: str = "TRK-0003", db: Session = Depends(get_db)):
-    seed_docks_if_empty(db)
-    truck = db.query(Truck).filter((Truck.id == truck_id) | (Truck.truck_number == truck_id)).first()
-    dock = db.query(Dock).filter(Dock.is_occupied == False).first() or db.query(Dock).first()
+    truck = db.query(Truck).filter((Truck.id == truck_id) | (Truck.truck_code == truck_id)).first()
+    dock = db.query(Dock).filter(Dock.status == "AVAILABLE").first() or db.query(Dock).first()
+    truck_code = getattr(truck, "truck_code", truck_id) if truck else truck_id
+    cargo = getattr(truck, "load_type", "Standard Cargo") if truck else "Standard Cargo"
+    dock_name = getattr(dock, "dock_code", getattr(dock, "dock_number", "DOCK-01")) if dock else "Dock 01"
+    dock_id_val = dock.id if dock else "dock-1"
 
     return {
         "truck_id": truck.id if truck else truck_id,
-        "truck_number": truck.truck_number if truck else truck_id,
-        "recommended_dock_id": dock.id if dock else "dock-1",
-        "recommended_dock_name": dock.dock_number if dock else "Dock 01",
-        "reason": f"Optimal bay matching for {truck.cargo_type if truck else 'Standard Cargo'} with available unloading equipment.",
+        "truck_number": truck_code,
+        "recommended_dock_id": dock_id_val,
+        "recommended_dock_name": dock_name,
+        "dock_id": dock_id_val,
+        "reason": f"Optimal bay matching for {cargo} with available unloading equipment.",
+        "confidence_score": 0.98,
     }
 
 

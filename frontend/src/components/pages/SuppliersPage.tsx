@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import axios from "axios";
+import React, { useState, useEffect, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -20,6 +20,11 @@ import {
   TrendingUp,
   Award
 } from "lucide-react";
+import { 
+  listPurchaseRequests, 
+  getPurchaseRequestSupplierRecommendations, 
+  approveSupplier as apiApproveSupplier 
+} from "@/lib/api";
 
 interface SupplierRec {
   supplier_id: string;
@@ -39,50 +44,104 @@ const DEFAULT_PURCHASE_REQUESTS = [
     id: "REQ-2026-0005",
     request_code: "REQ-2026-0005",
     title: "50 Enterprise Laptops",
-    quantity: 50,
     category: "IT_HARDWARE",
-    status: "PENDING_SOURCING",
-    items: [{ quantity: 50, product: { name: "Enterprise Laptops" }, description: "Enterprise Laptops" }]
+    quantity: 50,
+    delivery_location: "Bengaluru DC",
+    required_by: "2026-08-30",
+    priority: "HIGH",
+    estimated_budget: 2750000,
+    status: "APPROVED"
   },
   {
     id: "REQ-2026-0004",
     request_code: "REQ-2026-0004",
     title: "25 Pallets Industrial Packaging",
-    quantity: 25,
     category: "PACKAGING",
-    status: "PENDING_SOURCING",
-    items: [{ quantity: 25, product: { name: "Industrial Packaging" }, description: "Industrial Packaging" }]
+    quantity: 25,
+    delivery_location: "Chennai Hub",
+    required_by: "2026-09-05",
+    priority: "NORMAL",
+    estimated_budget: 125000,
+    status: "PENDING_SOURCING"
   }
 ];
 
 const DEFAULT_RECOMMENDATIONS: SupplierRec[] = [
   {
-    supplier_id: "sup-1",
-    supplier_name: "Precision Tech Components",
+    supplier_id: "SUP-001",
+    supplier_name: "TechSource India (Chennai)",
     match_score: 96.5,
     confidence_score: 0.98,
-    quoted_price: 2600000,
-    delivery_days: 4,
+    quoted_price: 2400000,
+    delivery_days: 5,
     esg_rating: "A+",
-    reliability_score: 98,
+    reliability_score: 96,
     risk_level: "LOW",
-    recommendation_reason: "Top-ranked supplier with 99.2% on-time delivery record, ISO-9001 audit clearance, and best volume pricing."
+    recommendation_reason: "Best overall balance with lowest total cost, high on-time delivery, and optimal ISO ESG compliance."
   },
   {
-    supplier_id: "sup-2",
-    supplier_name: "NexGen Electronics Hub",
-    match_score: 89.2,
-    confidence_score: 0.91,
-    quoted_price: 2680000,
+    supplier_id: "SUP-003",
+    supplier_name: "Prime Systems (Bengaluru)",
+    match_score: 94.2,
+    confidence_score: 0.95,
+    quoted_price: 2500000,
+    delivery_days: 4,
+    esg_rating: "A",
+    reliability_score: 98,
+    risk_level: "LOW",
+    recommendation_reason: "Fastest local delivery with highest historical quality rating (98%) and local Bengaluru warehouse hub."
+  },
+  {
+    supplier_id: "SUP-004",
+    supplier_name: "Apex Global Sourcing (Hyderabad)",
+    match_score: 93.8,
+    confidence_score: 0.94,
+    quoted_price: 2375000,
+    delivery_days: 3,
+    esg_rating: "A+",
+    reliability_score: 95,
+    risk_level: "LOW",
+    recommendation_reason: "Ultra-fast 72-hour air dispatch route with enterprise SLA and guaranteed buffer availability."
+  },
+  {
+    supplier_id: "SUP-007",
+    supplier_name: "Precision Sensor Corp (Delhi NCR)",
+    match_score: 91.5,
+    confidence_score: 0.93,
+    quoted_price: 2550000,
+    delivery_days: 3,
+    esg_rating: "A+",
+    reliability_score: 97,
+    risk_level: "LOW",
+    recommendation_reason: "ISO-9001 certified components with zero defect tolerance and automated IoT verification."
+  },
+  {
+    supplier_id: "SUP-005",
+    supplier_name: "NexGen Electronics (Pune)",
+    match_score: 88.0,
+    confidence_score: 0.90,
+    quoted_price: 2450000,
     delivery_days: 6,
     esg_rating: "A",
     reliability_score: 92,
     risk_level: "LOW",
-    recommendation_reason: "Reliable secondary tier-1 supplier with guaranteed SLAs and buffer stock availability."
+    recommendation_reason: "Reliable secondary tier-1 supplier with competitive volume discounts."
   },
   {
-    supplier_id: "sup-3",
-    supplier_name: "Apex Global Supplies",
+    supplier_id: "SUP-006",
+    supplier_name: "GreenPack Eco Materials (Coimbatore)",
+    match_score: 86.4,
+    confidence_score: 0.89,
+    quoted_price: 2350000,
+    delivery_days: 5,
+    esg_rating: "AAA",
+    reliability_score: 96,
+    risk_level: "LOW",
+    recommendation_reason: "Industry leader in 100% circular recycled materials with highest sustainability benchmark rating."
+  },
+  {
+    supplier_id: "SUP-002",
+    supplier_name: "Value IT Supplies (Mumbai)",
     match_score: 81.4,
     confidence_score: 0.84,
     quoted_price: 2750000,
@@ -90,31 +149,48 @@ const DEFAULT_RECOMMENDATIONS: SupplierRec[] = [
     esg_rating: "B+",
     reliability_score: 88,
     risk_level: "MEDIUM",
-    recommendation_reason: "Standard catalog pricing with higher lead time."
+    recommendation_reason: "Standard catalog pricing with higher lead time and secondary road transit."
+  },
+  {
+    supplier_id: "SUP-008",
+    supplier_name: "OmniDirect Industrial (Kolkata)",
+    match_score: 79.2,
+    confidence_score: 0.82,
+    quoted_price: 2275000,
+    delivery_days: 9,
+    esg_rating: "B+",
+    reliability_score: 89,
+    risk_level: "MEDIUM",
+    recommendation_reason: "Deepest volume rebate structure for bulk freight, best suited for non-urgent replenishments."
   }
 ];
 
-export function SuppliersPage() {
+function SuppliersPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlReqId = searchParams.get("reqId") || searchParams.get("id");
+
   const [purchaseRequests, setPurchaseRequests] = useState<any[]>(DEFAULT_PURCHASE_REQUESTS);
-  const [selectedReqId, setSelectedReqId] = useState<string>("REQ-2026-0005");
+  const [selectedReqId, setSelectedReqId] = useState<string>(urlReqId || "REQ-2026-0005");
   const [recommendations, setRecommendations] = useState<SupplierRec[]>(DEFAULT_RECOMMENDATIONS);
   const [isLoading, setIsLoading] = useState(false);
   const [isApproving, setIsApproving] = useState<string | null>(null);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
-
   const loadInitialData = async () => {
     setIsLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/procurement/requests`);
-      if (Array.isArray(res.data) && res.data.length > 0) {
-        setPurchaseRequests(res.data);
-        const firstId = res.data[0].id || res.data[0].request_code;
-        setSelectedReqId(firstId);
-        fetchRecommendations(firstId);
+      const data = await listPurchaseRequests();
+      if (Array.isArray(data) && data.length > 0) {
+        setPurchaseRequests(data);
+        const matchFound = urlReqId ? data.find(d => d.id === urlReqId || d.request_code === urlReqId) : null;
+        const targetId = matchFound ? (matchFound.id || matchFound.request_code) : (urlReqId || data[0].id || data[0].request_code);
+        setSelectedReqId(targetId);
+        fetchRecommendations(targetId);
       } else {
         setPurchaseRequests(DEFAULT_PURCHASE_REQUESTS);
-        setRecommendations(DEFAULT_RECOMMENDATIONS);
+        const targetId = urlReqId || DEFAULT_PURCHASE_REQUESTS[0].id;
+        setSelectedReqId(targetId);
+        fetchRecommendations(targetId);
       }
     } catch {
       setPurchaseRequests(DEFAULT_PURCHASE_REQUESTS);
@@ -126,9 +202,9 @@ export function SuppliersPage() {
 
   const fetchRecommendations = async (reqId: string) => {
     try {
-      const res = await axios.get(`${API_BASE}/procurement/requests/${reqId}/recommendations`);
-      if (Array.isArray(res.data) && res.data.length > 0) {
-        setRecommendations(res.data);
+      const recs = await getPurchaseRequestSupplierRecommendations(reqId);
+      if (Array.isArray(recs) && recs.length > 0) {
+        setRecommendations(recs);
       } else {
         setRecommendations(DEFAULT_RECOMMENDATIONS);
       }
@@ -139,7 +215,7 @@ export function SuppliersPage() {
 
   useEffect(() => {
     loadInitialData();
-  }, []);
+  }, [urlReqId]);
 
   const handleSelectReq = (reqId: string) => {
     setSelectedReqId(reqId);
@@ -148,21 +224,28 @@ export function SuppliersPage() {
 
   const handleApproveSupplier = async (supplier: SupplierRec) => {
     setIsApproving(supplier.supplier_id);
-    const poNum = `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`;
 
     try {
-      await axios.post(`${API_BASE}/procurement/requests/${selectedReqId}/approve-supplier`, {
+      const res = await apiApproveSupplier(selectedReqId, {
         supplier_id: supplier.supplier_id,
         supplier_name: supplier.supplier_name,
         amount: supplier.quoted_price
       });
-    } catch {}
 
-    toast.success(`Purchase Order ${poNum} Created!`, {
-      description: `Contract successfully awarded to ${supplier.supplier_name}. Route dispatched to logistics.`
-    });
+      const poNum = res?.po_code || res?.po_number || `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    setIsApproving(null);
+      toast.success(`Purchase Order ${poNum} Created!`, {
+        description: `Contract successfully awarded to ${supplier.supplier_name}. Route dispatched to logistics.`,
+        action: {
+          label: "View Purchase Orders",
+          onClick: () => router.push("/procurement/purchase-orders"),
+        },
+      });
+    } catch {
+      toast.error("Failed to approve supplier.");
+    } finally {
+      setIsApproving(null);
+    }
   };
 
   const selectedReq = purchaseRequests.find(
@@ -334,6 +417,14 @@ export function SuppliersPage() {
 
       </div>
     </AppShell>
+  );
+}
+
+export function SuppliersPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-500">Loading supplier intelligence...</div>}>
+      <SuppliersPageContent />
+    </Suspense>
   );
 }
 

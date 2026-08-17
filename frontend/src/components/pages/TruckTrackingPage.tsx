@@ -1,635 +1,386 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import axios from "axios";
+import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
+import { motion, useReducedMotion } from "motion/react";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { ETACard } from "@/components/logistics/ETACard";
+import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
   Search,
-  Truck as TruckIcon,
-  MapPin,
-  Clock,
-  AlertTriangle,
-  CheckCircle2,
-  User,
-  Package,
-  Layers,
-  Zap,
+  FastForward,
   Play,
   Pause,
-  RotateCcw
+  AlertTriangle,
+  AlertCircle,
+  Warehouse,
 } from "lucide-react";
+import {
+  simulateTruckStep,
+  simulateAllTrucks,
+  injectTruckDelay,
+} from "@/lib/api";
+import type { TrackingSearchResponse, TruckPosition } from "@/types/logistics";
+import { useTruckPolling } from "@/hooks/useTruckPolling";
 
-// Dynamically import Leaflet map elements to prevent Next.js SSR hydration errors
-const MapContainer = dynamic(
-  () => import("react-leaflet").then((mod) => mod.MapContainer),
-  { ssr: false }
-);
-const TileLayer = dynamic(
-  () => import("react-leaflet").then((mod) => mod.TileLayer),
-  { ssr: false }
-);
-const Marker = dynamic(
-  () => import("react-leaflet").then((mod) => mod.Marker),
-  { ssr: false }
-);
-const Popup = dynamic(
-  () => import("react-leaflet").then((mod) => mod.Popup),
-  { ssr: false }
-);
-const Polyline = dynamic(
-  () => import("react-leaflet").then((mod) => mod.Polyline),
-  { ssr: false }
-);
+// Dynamically import the map to avoid SSR hydration issues
+const TruckMap = dynamic(() => import("@/components/logistics/TruckMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full min-h-[400px] rounded-xl bg-slate-100 flex items-center justify-center text-sm text-slate-500 font-medium border border-border">
+      Loading GPS Telemetry Map...
+    </div>
+  ),
+});
 
-interface TelemetryTruck {
-  id: string;
-  truck_number: string;
-  trailer_id: string;
-  driver_name: string;
-  cargo_type: string;
-  po_number: string;
-  shipment_id: string;
-  status: "IN_TRANSIT" | "DELAYED" | "DELIVERED" | "DEPARTED";
-  progress: number;
-  origin_name: string;
-  dest_name: string;
-  origin_lat: number;
-  origin_lng: number;
-  dest_lat: number;
-  dest_lng: number;
-  current_lat: number;
-  current_lng: number;
-  eta: string;
-  original_eta: string;
-  delay_minutes: number;
-  priority: string;
-  last_updated?: string;
+// ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Tracking search box ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
+interface TrackingSearchProps {
+  onSearch: (query: string) => void;
+  isLoading: boolean;
 }
 
-const DRIVER_POOL = [
-  "Ramesh Kumar (+91 98765 43210)",
-  "Suresh Nair (+91 98450 11223)",
-  "Vikas Sharma (+91 97123 45678)",
-  "Anil Verma (+91 98111 22334)"
-];
+function TrackingSearch({ onSearch, isLoading }: TrackingSearchProps) {
+  const [value, setValue] = useState("TRK-1042");
 
-const CARGO_POOL = [
-  "Industrial Brake Assemblies",
-  "Lithium Battery Cells",
-  "Raw Steel Billets",
-  "Precision Machine Parts",
-  "Semiconductor IC Packs"
-];
-
-function generateSeedTruck(code: string): TelemetryTruck {
-  const clean = code.trim().toUpperCase();
-  const digits = clean.replace(/\D/g, "") || "1042";
-  const num = clean.startsWith("TRK-") ? clean : `TRK-${digits.padStart(4, "0")}`;
-  const hash = Math.abs(num.split("").reduce((a, b) => a + b.charCodeAt(0), 0));
-
-  const o_lat = 12.9716, o_lng = 77.5946; // Bengaluru
-  const d_lat = 13.0827, d_lng = 80.2707; // Chennai
-  const prog = 0.35;
-
-  return {
-    id: `trk-${digits}`,
-    truck_number: num,
-    trailer_id: `TRL-${digits.padStart(5, "0")}`,
-    driver_name: DRIVER_POOL[hash % DRIVER_POOL.length],
-    cargo_type: CARGO_POOL[hash % CARGO_POOL.length],
-    po_number: `PO-2026-${digits.padStart(4, "0")}`,
-    shipment_id: `SHP-PO-${digits.padStart(4, "0")}`,
-    status: "IN_TRANSIT",
-    progress: prog,
-    origin_name: "Bengaluru Facility",
-    dest_name: "Chennai DC Central",
-    origin_lat: o_lat,
-    origin_lng: o_lng,
-    dest_lat: d_lat,
-    dest_lng: d_lng,
-    current_lat: Number((o_lat + (d_lat - o_lat) * prog).toFixed(4)),
-    current_lng: Number((o_lng + (d_lng - o_lng) * prog).toFixed(4)),
-    eta: "Aug 21, 04:30 PM",
-    original_eta: "Aug 21, 03:00 PM",
-    delay_minutes: 0,
-    priority: "NORMAL",
-    last_updated: new Date().toLocaleTimeString(),
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (value.trim()) onSearch(value.trim());
   };
-}
-
-export function TrackingPage() {
-  const [searchQuery, setSearchQuery] = useState("TRK-0003");
-  const [truck, setTruck] = useState<TelemetryTruck | null>(null);
-  const [alerts, setAlerts] = useState<any[]>([]);
-  const [isAutoSimulating, setIsAutoSimulating] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [leafletLoaded, setLeafletLoaded] = useState(false);
-
-  const autoSimRef = useRef<NodeJS.Timeout | null>(null);
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
-
-  // Load Leaflet map CSS and setup icons on mount
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      import("leaflet").then((L) => {
-        delete (L.Icon.Default.prototype as any)._getIconUrl;
-        L.Icon.Default.mergeOptions({
-          iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-          iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-          shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-        });
-        setLeafletLoaded(true);
-      });
-    }
-  }, []);
-
-  const handleTrack = async (targetQuery = searchQuery) => {
-    const q = targetQuery.trim();
-    if (!q) return;
-    setIsLoading(true);
-
-    try {
-      const res = await axios.get(`${API_BASE}/logistics/track/${encodeURIComponent(q)}`);
-      if (res.data?.truck) {
-        const t = res.data.truck;
-        const progress = t.progress || 0.0;
-        const isDeliv = t.status === "DELIVERED" || progress >= 1.0;
-
-        const sanitizedTruck: TelemetryTruck = {
-          ...t,
-          driver_name: t.driver_name && t.driver_name !== "Unassigned" ? t.driver_name : DRIVER_POOL[0],
-          cargo_type: t.cargo_type && t.cargo_type !== "Unknown" ? t.cargo_type : CARGO_POOL[0],
-          status: isDeliv ? "DELIVERED" : t.status,
-          last_updated: new Date().toLocaleTimeString(),
-        };
-
-        setTruck(sanitizedTruck);
-
-        let fetchedAlerts = res.data.alerts || [];
-        if (isDeliv && !fetchedAlerts.some((a: any) => a.alert_type === "ARRIVAL")) {
-          fetchedAlerts = [
-            {
-              id: `arr-${Date.now()}`,
-              alert_type: "ARRIVAL",
-              severity: "INFO",
-              message: `Shipment ${sanitizedTruck.truck_number} has successfully arrived at ${sanitizedTruck.dest_name}. Geofence check-in complete.`,
-            },
-            ...fetchedAlerts,
-          ];
-        }
-        setAlerts(fetchedAlerts);
-        setIsLoading(false);
-        return;
-      }
-    } catch {
-      // Graceful fallback for dynamic unseeded IDs
-    }
-
-    const fallback = generateSeedTruck(q);
-    setTruck(fallback);
-    setAlerts([
-      {
-        id: "alt-init",
-        alert_type: "INFO",
-        severity: "INFO",
-        message: `Telemetry stream active for ${fallback.truck_number}. Real-time GPS coordinates broadcasting along NH-48 corridor.`,
-      },
-    ]);
-    setIsLoading(false);
-  };
-
-  useEffect(() => {
-    handleTrack("TRK-0003");
-  }, []);
-
-  // Simulation step execution
-  const executeStep = () => {
-    setTruck((prev) => {
-      if (!prev) return null;
-      const currentProg = prev.progress || 0.0;
-      if (currentProg >= 1.0) {
-        setIsAutoSimulating(false);
-        return prev;
-      }
-
-      const nextProg = Math.min(1.0, currentProg + 0.15);
-      const isReached = nextProg >= 1.0;
-
-      const o_lat = prev.origin_lat || 12.9716;
-      const o_lng = prev.origin_lng || 77.5946;
-      const d_lat = prev.dest_lat || 13.0827;
-      const d_lng = prev.dest_lng || 80.2707;
-
-      const updated: TelemetryTruck = {
-        ...prev,
-        progress: Number(nextProg.toFixed(2)),
-        status: isReached ? "DELIVERED" : prev.status,
-        current_lat: isReached ? d_lat : Number((o_lat + (d_lat - o_lat) * nextProg).toFixed(4)),
-        current_lng: isReached ? d_lng : Number((o_lng + (d_lng - o_lng) * nextProg).toFixed(4)),
-        last_updated: new Date().toLocaleTimeString(),
-      };
-
-      if (isReached) {
-        setIsAutoSimulating(false);
-        const arrivalAlert = {
-          id: `arr-${Date.now()}`,
-          alert_type: "ARRIVAL",
-          severity: "INFO",
-          message: `🎯 Truck ${prev.truck_number} (${prev.cargo_type}) has reached ${prev.dest_name}. Geofencing trigger confirmed arrival.`,
-        };
-        setAlerts((a) => [arrivalAlert, ...a]);
-        toast.success("🎯 Destination Reached!", {
-          description: `Truck ${prev.truck_number} arrived at ${prev.dest_name}. Ready for dock check-in.`,
-        });
-      }
-
-      return updated;
-    });
-  };
-
-  // Auto-simulate timer hook
-  useEffect(() => {
-    if (isAutoSimulating) {
-      autoSimRef.current = setInterval(() => {
-        executeStep();
-      }, 1500);
-    } else if (autoSimRef.current) {
-      clearInterval(autoSimRef.current);
-    }
-    return () => {
-      if (autoSimRef.current) clearInterval(autoSimRef.current);
-    };
-  }, [isAutoSimulating]);
-
-  const handleInjectDelay = () => {
-    if (!truck) return;
-    setTruck((prev) => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        status: "DELAYED",
-        delay_minutes: (prev.delay_minutes || 0) + 45,
-        last_updated: new Date().toLocaleTimeString(),
-      };
-    });
-
-    const delayAlert = {
-      id: `dly-${Date.now()}`,
-      alert_type: "DELAY",
-      severity: "WARNING",
-      message: `Traffic congestion on NH-48 corridor. Injected 45-minute delay to ${truck.truck_number}.`,
-    };
-    setAlerts((prev) => [delayAlert, ...prev]);
-    toast.warning("Delay Injected (+45 Mins)", {
-      description: "Recalculated dynamic arrival schedule.",
-    });
-  };
-
-  const handleResetRoute = () => {
-    if (!truck) return;
-    setIsAutoSimulating(false);
-    const resetTruck = generateSeedTruck(truck.truck_number);
-    resetTruck.progress = 0.1;
-    resetTruck.status = "IN_TRANSIT";
-    setTruck(resetTruck);
-    setAlerts([
-      {
-        id: `rst-${Date.now()}`,
-        alert_type: "INFO",
-        severity: "INFO",
-        message: `Simulation reset to origin facility for ${resetTruck.truck_number}.`,
-      },
-    ]);
-    toast.info("Route simulation reset to origin");
-  };
-
-  const progressPercent = Math.min(100, Math.round((truck?.progress || 0) * 100));
-  const isDelivered = truck?.status === "DELIVERED" || progressPercent >= 100;
-  const isDelayed = truck?.status === "DELAYED" || (truck?.delay_minutes && truck.delay_minutes > 0);
-
-  const routeCoordinates: [number, number][] = truck
-    ? [
-        [truck.origin_lat || 12.9716, truck.origin_lng || 77.5946],
-        [truck.current_lat || 12.9716, truck.current_lng || 77.5946],
-        [truck.dest_lat || 13.0827, truck.dest_lng || 80.2707],
-      ]
-    : [];
 
   return (
-    <AppShell title="Live Fleet Tracking">
-      {/* Leaflet CSS Inject */}
-      <link
-        rel="stylesheet"
-        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-        crossOrigin=""
-      />
+    <form onSubmit={handleSubmit} className="flex gap-2 items-center">
+      <div className="relative flex-1">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Truck code, trailer ID, shipment or PO referenceÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦"
+          className="pl-9 h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+      </div>
+      <Button type="submit" disabled={isLoading} size="sm" className="h-10 px-5 font-semibold">
+        {isLoading ? "SearchingÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦" : "Track"}
+      </Button>
+    </form>
+  );
+}
 
-      <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 space-y-6">
-        
-        {/* ── Search Bar & Quick Picks ── */}
-        <Card className="border-slate-200 shadow-sm bg-white">
-          <CardContent className="p-4 space-y-3">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleTrack();
-              }}
-              className="flex gap-2"
-            >
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
-                <Input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search Truck Code, Trailer, Shipment, or PO Number (e.g. TRK-0003)"
-                  className="pl-9 bg-slate-50 border-slate-200 text-sm font-medium"
-                />
-              </div>
-              <Button type="submit" disabled={isLoading} className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6">
-                {isLoading ? "Searching..." : "Track"}
-              </Button>
-            </form>
+// ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Truck details panel ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
+function TruckTrackingDetails({
+  truck,
+}: {
+  truck: TruckPosition;
+}) {
+  const shipment = truck.shipment;
+  const fields: [string, string][] = [
+    ["Truck code", truck.truck_code],
+    ["Trailer ID", truck.trailer_id],
+    ["Driver", truck.driver_name ?? "Unassigned"],
+    ["Load type", truck.load_type ?? truck.status],
+    ["Priority", truck.priority],
+    ["Shipment", shipment?.shipment_code ?? "No active shipment"],
+    ["PO reference", shipment?.purchase_order_reference ?? "ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â"],
+    ["Progress", `${truck.progress_percent}%`],
+  ];
 
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 pt-1">
-              <span className="font-semibold text-slate-700">Quick Track Demo:</span>
-              {["TRK-0003", "TRK-0004", "TRK-1042", "TRK-1055", "SHP-1001", "PO-2026-0042"].map((code) => (
-                <button
-                  key={code}
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery(code);
-                    handleTrack(code);
-                  }}
-                  className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 rounded-md border border-slate-200 transition-colors font-mono font-medium text-[11px]"
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-4">
+      <h3 className="text-sm font-semibold tracking-tight text-foreground">Operational Telematics</h3>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+        {fields.map(([label, value]) => (
+          <div key={label}>
+            <dt className="text-xs text-muted-foreground font-medium">{label}</dt>
+            <dd className="text-sm font-semibold text-foreground mt-0.5 font-mono">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+// ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Alerts panel ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
+function TrackingAlerts({
+  alerts,
+}: Pick<TrackingSearchResponse, "alerts">) {
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-3 h-full overflow-y-auto">
+      <h3 className="text-sm font-semibold tracking-tight text-foreground">
+        Active Alerts ({alerts.length})
+      </h3>
+      {alerts.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No active alerts. Shipment is running on schedule.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {alerts.map((alert) => (
+            <li key={alert.id} className="flex items-start gap-2 text-xs">
+              <StatusBadge
+                status={
+                  alert.severity === "CRITICAL"
+                    ? "critical"
+                    : alert.severity === "WARNING"
+                    ? "warning"
+                    : "info"
+                }
+                label={alert.alert_type}
+              />
+              <span className="text-foreground leading-snug">{alert.message}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Main page ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
+export function TruckTrackingPage() {
+  const [searchQuery, setSearchQuery] = useState("TRK-1042");
+  const { data, isLoading, error, refresh } = useTruckPolling(searchQuery);
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [isAutoSimulating, setIsAutoSimulating] = useState(false);
+
+  const shouldReduceMotion = useReducedMotion();
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    setIsAutoSimulating(false);
+  };
+
+  const handleAdvanceSimulation = async () => {
+    if (!data?.truck?.id) return;
+    setIsSimulating(true);
+    try {
+      await simulateTruckStep(data.truck.id);
+      await refresh();
+    } catch (err) {
+      console.error("Simulation step error:", err);
+      toast.error("Simulation step failed.");
+    } finally {
+      setIsSimulating(false);
+    }
+  };
+
+  const handleInjectDelay = async () => {
+    if (!data?.truck?.id) return;
+    try {
+      await injectTruckDelay(data.truck.id);
+      await refresh();
+      toast.warning("Traffic disruption injected! ETA delayed +25 mins.");
+    } catch {
+      toast.error("Failed to inject delay.");
+    }
+  };
+
+  const handleSimulateAll = async () => {
+    setIsSimulating(true);
+    try {
+      await simulateAllTrucks();
+      await refresh();
+      toast.success("All active fleet positions advanced!");
+    } catch (err) {
+      console.error("Simulation all error:", err);
+      toast.error("Fleet simulation failed.");
+    } finally {
+      setIsSimulating(false);
+    }
+  };
+
+  // Automated simulation loop ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â runs one step every 2 seconds
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    const isArrived =
+      data?.truck?.status === "ARRIVED" || data?.truck?.status === "IN_YARD" || data?.truck?.status === "DOCKED";
+
+    if (isAutoSimulating && data?.truck?.id && !isArrived) {
+      timer = setInterval(async () => {
+        try {
+          await simulateTruckStep(data.truck.id);
+          await refresh();
+        } catch {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsAutoSimulating(false);
+        }
+      }, 2000);
+    } else if (isArrived) {
+// eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsAutoSimulating(false);
+    }
+    return () => clearInterval(timer);
+  }, [isAutoSimulating, data?.truck?.id, data?.truck?.status, refresh]);
+
+  const truck = data?.truck;
+  const isArrived =
+    truck?.status === "ARRIVED" || truck?.status === "IN_YARD" || truck?.status === "DOCKED";
+
+  return (
+    <AppShell title="Truck Tracking">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-8">
+        <PageHeader
+          title="Live Delivery & Vehicle Tracker"
+          description="Real-time telematics, dynamic ETA recalculations, and automated dock allocation triggers."
+          action={
+            data && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSimulateAll}
+                  disabled={isSimulating}
                 >
-                  {code}
-                </button>
-              ))}
+                  <FastForward className="size-4 mr-1.5" />
+                  Simulate All Fleet
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleInjectDelay}
+                  className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                  disabled={isSimulating || isArrived}
+                >
+                  <AlertTriangle className="size-4 mr-1.5 text-amber-600" />
+                  Inject Incident (+25m)
+                </Button>
+
+                <Button
+                  size="sm"
+                  onClick={() => setIsAutoSimulating((prev) => !prev)}
+                  className={
+                    isAutoSimulating
+                      ? "bg-amber-600 hover:bg-amber-700 text-white"
+                      : "bg-blue-600 hover:bg-blue-700 text-white"
+                  }
+                  disabled={isArrived}
+                >
+                  {isAutoSimulating ? (
+                    <>
+                      <Pause className="size-4 mr-1.5" /> Pause Auto-Sim
+                    </>
+                  ) : (
+                    <>
+                      <Play className="size-4 mr-1.5" /> Auto-Simulate (Live)
+                    </>
+                  )}
+                </Button>
+
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleAdvanceSimulation}
+                  disabled={isSimulating || isAutoSimulating || isArrived}
+                >
+                  Step +5%
+                </Button>
+              </div>
+            )
+          }
+        />
+
+        {/* ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Search bar ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ */}
+        <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-3">
+          <TrackingSearch onSearch={handleSearch} isLoading={isLoading && !data} />
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground pt-1">
+            <span className="font-semibold">Quick Track Demo:</span>
+            {["TRK-1042", "TRK-1055", "TRL-8821", "SHP-1001", "PO-2026-0042"].map((chip) => (
+              <button
+                key={chip}
+                onClick={() => handleSearch(chip)}
+                className="bg-muted hover:bg-primary/10 hover:text-primary px-2.5 py-1 rounded-md border font-mono transition-colors"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Error state ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ */}
+        {error && (
+          <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-xl p-5 flex items-start gap-3">
+            <AlertCircle className="size-5 shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-1">
+              <h3 className="font-semibold text-sm">Tracking Query Error</h3>
+              <p className="text-sm">{error}</p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        )}
 
-        {truck && (
-          <>
-            {/* ── Top Ribbon: ETA & Operational Details ── */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-              
-              {/* ETA & Progress Bar */}
-              <Card className="border-slate-200 shadow-sm bg-white md:col-span-5 flex flex-col justify-between">
-                <CardContent className="p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
-                      <Clock className="size-3.5" /> Estimated Time of Arrival
-                    </span>
-                    <Badge
-                      className={
-                        isDelivered
-                          ? "bg-emerald-100 text-emerald-800 border-emerald-300 font-bold text-xs"
-                          : isDelayed
-                          ? "bg-rose-100 text-rose-800 border-rose-300 font-bold text-xs"
-                          : "bg-blue-100 text-blue-800 border-blue-300 font-bold text-xs"
-                      }
-                    >
-                      {isDelivered ? "DELIVERED" : isDelayed ? "DELAYED" : "IN-TRANSIT"}
-                    </Badge>
+        {/* ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Loading state (initial only ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â polling updates are silent) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ */}
+        {isLoading && !data && !error && (
+          <div className="py-20 flex justify-center">
+            <LoadingSpinner label="Querying logistics telematicsÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦" className="scale-150" />
+          </div>
+        )}
+
+        {/* ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Empty/no-query state ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ */}
+        {!searchQuery && !isLoading && !error && !data && (
+          <EmptyState
+            icon={Search}
+            title="Search for a shipment or vehicle"
+            description="Enter a tracking number, trailer ID, or PO reference above to see live updates."
+            className="py-20 bg-card border border-border rounded-xl shadow-sm"
+          />
+        )}
+
+        {/* ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Results ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ */}
+        {data && (
+          <motion.div
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex flex-col gap-6"
+          >
+            {/* Yard / geofence arrival banner */}
+            {isArrived && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center justify-between shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="bg-emerald-100 p-2 rounded-lg">
+                    <Warehouse className="w-6 h-6 text-emerald-700" />
                   </div>
-
                   <div>
-                    <div className="text-3xl font-black text-slate-900 font-mono tracking-tight">
-                      {isDelivered ? "ARRIVED ON-SITE" : truck.eta || "Aug 21, 10:57 AM"}
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Original ETA: {truck.original_eta || "Aug 21, 12:04 PM"}
+                    <h4 className="font-bold text-emerald-950 text-sm">
+                      Vehicle in Yard / Ready for Dock Assignment
+                    </h4>
+                    <p className="text-xs text-emerald-700">
+                      Geofence triggered: Truck {data.truck.truck_code} has arrived at the facility perimeter.
                     </p>
                   </div>
-
-                  <div className="space-y-1.5 pt-2">
-                    <div className="flex justify-between text-xs text-slate-600 font-medium">
-                      <span className="flex items-center gap-1"><MapPin className="size-3 text-slate-400" /> Origin</span>
-                      <span className="font-bold text-blue-600">{progressPercent}%</span>
-                      <span className="flex items-center gap-1">Destination <MapPin className="size-3 text-blue-600" /></span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                      <div
-                        className={`h-2.5 rounded-full transition-all duration-500 ${
-                          isDelivered ? "bg-emerald-500" : isDelayed ? "bg-amber-500" : "bg-blue-600"
-                        }`}
-                        style={{ width: `${progressPercent}%` }}
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Operational Telemetry Details */}
-              <Card className="border-slate-200 shadow-sm bg-white md:col-span-7">
-                <CardHeader className="py-3 px-5 border-b bg-slate-50/50">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                      Operational Telematics
-                    </CardTitle>
-                    {/* Live Simulation Buttons */}
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        size="sm"
-                        variant={isAutoSimulating ? "destructive" : "default"}
-                        className="h-7 text-[11px] px-2.5 font-semibold"
-                        onClick={() => setIsAutoSimulating(!isAutoSimulating)}
-                      >
-                        {isAutoSimulating ? (
-                          <>
-                            <Pause className="size-3 mr-1" /> Pause Auto
-                          </>
-                        ) : (
-                          <>
-                            <Play className="size-3 mr-1" /> Auto Simulate
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-[11px] px-2 font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border-blue-200"
-                        onClick={executeStep}
-                        disabled={isDelivered}
-                      >
-                        <Zap className="size-3 mr-1 text-blue-600" /> Step
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-[11px] px-2 text-rose-600 hover:bg-rose-50 border-rose-200"
-                        onClick={handleInjectDelay}
-                      >
-                        <AlertTriangle className="size-3 mr-1" /> Delay
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-[11px] px-1.5 text-slate-500"
-                        onClick={handleResetRoute}
-                      >
-                        <RotateCcw className="size-3" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-5 grid grid-cols-3 gap-y-4 gap-x-2 text-xs">
-                  <div>
-                    <span className="text-slate-400 block font-medium">Truck Code</span>
-                    <span className="font-mono font-bold text-slate-900 text-sm">{truck.truck_number}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block font-medium">Trailer ID</span>
-                    <span className="font-mono text-slate-700">{truck.trailer_id}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block font-medium">Driver</span>
-                    <span className="font-semibold text-slate-900 flex items-center gap-1">
-                      <User className="size-3 text-slate-500" />
-                      {truck.driver_name}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block font-medium">Shipment Code</span>
-                    <span className="font-mono text-slate-700">{truck.shipment_id}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block font-medium">PO Reference</span>
-                    <span className="font-mono font-bold text-blue-600">{truck.po_number}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block font-medium">Priority</span>
-                    <span className="font-bold text-slate-900 uppercase">{truck.priority || "NORMAL"}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block font-medium">Load Type</span>
-                    <span className="font-semibold text-slate-900 flex items-center gap-1">
-                      <Package className="size-3 text-slate-500" />
-                      {truck.cargo_type}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block font-medium">Coordinates</span>
-                    <span className="font-mono text-slate-700">
-                      {truck.current_lat?.toFixed(4)}, {truck.current_lng?.toFixed(4)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block font-medium">Last Updated</span>
-                    <span className="font-mono text-slate-600">{truck.last_updated}</span>
-                  </div>
-                </CardContent>
-              </Card>
-
-            </div>
-
-            {/* ── Bottom Section: Interactive Map + Active Alerts ── */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-              
-              {/* Interactive OpenStreetMap Container */}
-              <Card className="border-slate-200 shadow-sm bg-white md:col-span-8 overflow-hidden">
-                <div className="h-[380px] w-full relative z-0">
-                  {leafletLoaded && typeof window !== "undefined" ? (
-                    <MapContainer
-                      center={[truck.current_lat || 12.9716, truck.current_lng || 77.5946]}
-                      zoom={7}
-                      scrollWheelZoom={false}
-                      className="h-full w-full"
-                    >
-                      <TileLayer
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                      />
-                      
-                      {/* Origin Marker */}
-                      <Marker position={[truck.origin_lat || 12.9716, truck.origin_lng || 77.5946]}>
-                        <Popup>
-                          <b>Origin:</b> {truck.origin_name}
-                        </Popup>
-                      </Marker>
-
-                      {/* Moving Current Truck Position */}
-                      <Marker position={[truck.current_lat || 12.9716, truck.current_lng || 77.5946]}>
-                        <Popup>
-                          <b>{truck.truck_number}</b><br />
-                          Driver: {truck.driver_name}<br />
-                          Status: {truck.status} ({progressPercent}%)
-                        </Popup>
-                      </Marker>
-
-                      {/* Destination Marker */}
-                      <Marker position={[truck.dest_lat || 13.0827, truck.dest_lng || 80.2707]}>
-                        <Popup>
-                          <b>Destination:</b> {truck.dest_name}
-                        </Popup>
-                      </Marker>
-
-                      {/* Route Polyline */}
-                      <Polyline
-                        positions={routeCoordinates}
-                        color={isDelivered ? "#10b981" : isDelayed ? "#f59e0b" : "#2563eb"}
-                        weight={4}
-                        dashArray={isDelivered ? undefined : "6, 8"}
-                      />
-                    </MapContainer>
-                  ) : (
-                    <div className="h-full w-full bg-slate-100 flex items-center justify-center text-xs text-slate-500 font-medium">
-                      Loading GPS Telemetry Map...
-                    </div>
-                  )}
                 </div>
-              </Card>
+                <Link href="/logistics/docks">
+                  <Button size="sm" className="bg-emerald-700 hover:bg-emerald-800 text-white">
+                    Assign Dock Door
+                  </Button>
+                </Link>
+              </div>
+            )}
 
-              {/* Active Alerts Panel */}
-              <Card className="border-slate-200 shadow-sm bg-white md:col-span-4 flex flex-col">
-                <CardHeader className="py-3 px-5 border-b bg-slate-50/50">
-                  <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                    <AlertTriangle className="size-3.5 text-amber-500" />
-                    Active Alerts ({alerts.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-4 flex-1 overflow-y-auto max-h-[320px] divide-y divide-slate-100">
-                  {alerts.length === 0 ? (
-                    <div className="text-xs text-slate-500 py-6 text-center">
-                      No critical active alerts. Shipment is moving along designated GPS corridor.
-                    </div>
-                  ) : (
-                    alerts.map((alt: any, idx: number) => (
-                      <div key={alt.id || idx} className="py-2.5 first:pt-0 last:pb-0 flex items-start gap-2.5 text-xs">
-                        {alt.alert_type === "ARRIVAL" ? (
-                          <CheckCircle2 className="size-4 text-emerald-600 shrink-0 mt-0.5" />
-                        ) : alt.alert_type === "DELAY" ? (
-                          <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
-                        ) : (
-                          <Clock className="size-4 text-blue-600 shrink-0 mt-0.5" />
-                        )}
-                        <div className="space-y-0.5">
-                          <p className="font-semibold text-slate-900 leading-snug">{alt.message}</p>
-                          <p className="text-[10px] text-slate-400 font-mono">
-                            Type: {alt.alert_type} • Severity: {alt.severity || "NORMAL"}
-                          </p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-
+            {/* ETA card + telemetry grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <ETACard truck={data.truck} />
+              <TruckTrackingDetails truck={data.truck} />
             </div>
-          </>
+
+            {/* Map + alerts */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-[420px]">
+              <div className="lg:col-span-2 h-full min-h-[400px]">
+                <TruckMap truck={data.truck} />
+              </div>
+              <div className="h-full">
+                <TrackingAlerts alerts={data.alerts} />
+              </div>
+            </div>
+          </motion.div>
         )}
       </div>
     </AppShell>
   );
 }
 
-export default TrackingPage;
+export default TruckTrackingPage;

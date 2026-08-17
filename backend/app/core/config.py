@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import logging
 
 
 class Settings(BaseSettings):
@@ -15,9 +16,9 @@ class Settings(BaseSettings):
     # CORS
     FRONTEND_ORIGIN: str = "http://localhost:3000"
 
-    # Gemini
+    # AI / LLM Model
     GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-3.1-flash-lite"
+    GEMINI_MODEL: str = "google/gemma-4-31B-it"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -28,3 +29,18 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+def _mask_db_url(url: str) -> str:
+    try:
+        parts = url.split('@')
+        if len(parts) == 2:
+            auth_part = parts[0]
+            host_part = parts[1]
+            scheme_user = auth_part.split(':')
+            if len(scheme_user) >= 3:
+                return f"{scheme_user[0]}:{scheme_user[1]}:***@{host_part}"
+        return "***masked***"
+    except Exception:
+        return "***masked***"
+
+logging.info(f"Loaded DATABASE_URL successfully: {_mask_db_url(settings.DATABASE_URL)}")

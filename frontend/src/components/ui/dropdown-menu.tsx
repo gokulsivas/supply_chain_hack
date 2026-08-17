@@ -84,7 +84,7 @@ interface DropdownMenuContentProps extends React.HTMLAttributes<HTMLDivElement> 
   sideOffset?: number;
 }
 
-function DropdownMenuContent({ className, children, ...props }: DropdownMenuContentProps) {
+function DropdownMenuContent({ className, children, sideOffset, ...props }: DropdownMenuContentProps) {
   const { open } = useDropdown();
 
   if (!open) return null;
@@ -92,6 +92,7 @@ function DropdownMenuContent({ className, children, ...props }: DropdownMenuCont
   return (
     <div
       data-slot="dropdown-menu-content"
+      style={sideOffset ? { marginTop: `${sideOffset}px` } : undefined}
       className={cn(
         "absolute right-0 mt-2 z-50 min-w-[10rem] overflow-hidden rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-xl transition-all animate-in fade-in-0 zoom-in-95",
         className
