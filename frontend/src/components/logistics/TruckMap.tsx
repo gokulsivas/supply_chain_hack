@@ -175,21 +175,19 @@ function AnimatedTruckMarker({
   status?: string;
   progress?: number;
 }) {
-  const markerRef = useRef<L.Marker>(null);
   const map = useMap();
 
   useEffect(() => {
-    if (markerRef.current) {
-      const newPos = L.latLng(lat, lng);
-      markerRef.current.setLatLng(newPos);
-      try {
-        map.panTo(newPos, { animate: true, duration: 0.6 });
-      } catch {}
-    }
+    try {
+      if (map && typeof map.panTo === "function") {
+        const newPos = L.latLng(lat, lng);
+        map.panTo(newPos, { animate: true, duration: 0.5 });
+      }
+    } catch {}
   }, [lat, lng, map]);
 
   return (
-    <Marker ref={markerRef} position={[lat, lng]} icon={icon}>
+    <Marker position={[lat, lng]} icon={icon}>
       <Tooltip direction="top" offset={[0, -16]} opacity={0.95}>
         <div className="text-xs font-semibold">
           <span className="text-blue-600 font-bold">{truckCode || "Truck"}</span> ({progress ?? 0}%)

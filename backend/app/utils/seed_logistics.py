@@ -248,17 +248,13 @@ def reset_logistics(db: Session) -> None:
     # Delete all alerts for demo trucks
     db.query(LogisticsAlert).filter(LogisticsAlert.truck_id.in_(truck_ids)).delete(synchronize_session=False)
 
-    # Reset Trucks
-    trucks_data = {t["id"]: t for t in _truck_records()}
-    for truck in db.query(Truck).filter(Truck.id.in_(truck_ids)).all():
-        data = trucks_data[truck.id]
-        truck.status = data["status"]
-        truck.current_lat = data["current_lat"]
-        truck.current_lng = data["current_lng"]
-        truck.progress_percent = data["progress_percent"]
-        truck.original_eta = data["original_eta"]
-        truck.current_eta = data["current_eta"]
-        truck.delay_minutes = data["delay_minutes"]
+    # Reset Trucks (set all DB trucks to active IN_TRANSIT with pending progress)
+    all_trucks = db.query(Truck).all()
+    for truck in all_trucks:
+        truck.status = "IN_TRANSIT"
+        truck.delay_minutes = 0
+        truck.progress_percent = random.randint(15, 45)
+        truck.progress = round(truck.progress_percent / 100.0, 2)
         truck.updated_at = datetime.now(timezone.utc)
 
     # Reset Yard Slots

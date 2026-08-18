@@ -503,6 +503,28 @@ def inject_truck_delay(truck_id: str, db: Session = Depends(get_db)):
     return truck
 
 
+@router.delete("/trucks/{truck_id}/alerts")
+def clear_truck_incidents(truck_id: str, db: Session = Depends(get_db)):
+    """Delete all DELAY alerts for a truck and reset its delay state."""
+    truck = db.query(Truck).filter(Truck.id == truck_id).first()
+    if not truck:
+        raise HTTPException(status_code=404, detail="Truck not found")
+
+    deleted = (
+        db.query(LogisticsAlert)
+        .filter(LogisticsAlert.truck_id == truck_id, LogisticsAlert.alert_type == "DELAY")
+        .delete(synchronize_session=False)
+    )
+
+    if truck.status == "DELAYED":
+        truck.status = "IN_TRANSIT"
+    truck.delay_minutes = 0
+
+    db.commit()
+    db.refresh(truck)
+    return {"deleted_alerts": deleted, "truck_id": truck_id, "status": truck.status}
+
+
 @router.post("/simulate-all")
 def simulate_all_trucks(db: Session = Depends(get_db)):
     """Advance every non-arrived truck by one simulation step."""

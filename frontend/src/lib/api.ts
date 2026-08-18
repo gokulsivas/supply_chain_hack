@@ -496,6 +496,11 @@ export async function injectTruckDelay(truckId: string) {
 }
 export const injectDelay = injectTruckDelay;
 
+export async function clearTruckIncidents(truckId: string) {
+  const res = await apiClient.delete(`/logistics/trucks/${truckId}/alerts`);
+  return res.data;
+}
+
 export async function getTruckDetail(truckId: string) {
   const res = await apiClient.get(`/logistics/trucks/${encodeURIComponent(truckId)}`);
   return res.data;

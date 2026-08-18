@@ -62,10 +62,14 @@ export function PODetailDrawer({ order, isOpen, onClose }: PODetailDrawerProps) 
   const deliveryDate = (order.expected_delivery_date as string) || (order.expected_delivery as string);
 
   const truckObj = typeof order.truck === "object" && order.truck !== null ? (order.truck as Record<string, unknown>) : null;
+  const rawDigits = poCode.replace(/\D/g, "");
+  const fallbackTruckFromPO = rawDigits ? `TRK-${rawDigits.padStart(4, "0")}` : undefined;
   const truckCode =
     (truckObj?.truck_code as string) ||
+    (truckObj?.truck_number as string) ||
     (order.logistics_truck as string) ||
-    (order.truck_id as string);
+    (order.truck_id as string) ||
+    fallbackTruckFromPO;
 
   const shipmentObj = typeof order.shipment === "object" && order.shipment !== null ? (order.shipment as Record<string, unknown>) : null;
   const shipmentCode = (shipmentObj?.shipment_code as string) || null;

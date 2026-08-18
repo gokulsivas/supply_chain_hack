@@ -27,11 +27,16 @@ import {
   Droplets,
   Activity,
   Timer,
+  Trash2,
+  RotateCcw,
 } from "lucide-react";
 import {
   simulateTruckStep,
   simulateAllTrucks,
   injectTruckDelay,
+  clearTruckIncidents,
+  resetLogisticsDemo,
+  listTrucks,
 } from "@/lib/api";
 import type { TrackingSearchResponse, TruckPosition } from "@/types/logistics";
 import { useTruckPolling } from "@/hooks/useTruckPolling";
@@ -252,22 +257,45 @@ function TruckTrackingContent() {
   }, [urlQuery, searchQuery]);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("local_purchase_orders");
-      if (stored) {
-        const localPOs = JSON.parse(stored) as Array<Record<string, string>>;
-        const extraChips: string[] = [];
-        localPOs.forEach((po) => {
-          if (po.logistics_truck) extraChips.push(po.logistics_truck);
-          if (po.po_code || po.po_number) extraChips.push(po.po_code || po.po_number);
+    let isMounted = true;
+    const fetchFleetChips = async () => {
+      try {
+        const truckList = await listTrucks();
+        if (!isMounted || !Array.isArray(truckList)) return;
+        const truckCodes: string[] = [];
+        truckList.forEach((t: Record<string, unknown>) => {
+          const code = (t.truck_code as string) || (t.truck_number as string);
+          if (code && !truckCodes.includes(code)) {
+            truckCodes.push(code);
+          }
         });
-        const combined = Array.from(new Set([...dynamicChips, ...extraChips])).slice(0, 7);
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setDynamicChips(combined);
-      }
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
+        const stored = localStorage.getItem("local_purchase_orders");
+        const extraChips: string[] = [];
+        if (stored) {
+          const localPOs = JSON.parse(stored) as Array<Record<string, string>>;
+          localPOs.forEach((po) => {
+            if (po.logistics_truck) extraChips.push(po.logistics_truck);
+            if (po.po_code || po.po_number) extraChips.push(po.po_code || po.po_number);
+          });
+        }
+
+        const combined = Array.from(new Set([...truckCodes, ...extraChips, "TRK-1042", "TRK-1055"])).slice(0, 8);
+        if (combined.length > 0) {
+          setDynamicChips(combined);
+          if (!urlQuery) {
+            setSearchQuery(combined[0]);
+          }
+        }
+      } catch {}
+    };
+
+    fetchFleetChips();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [urlQuery]);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -296,6 +324,30 @@ function TruckTrackingContent() {
       toast.warning("Traffic disruption injected! ETA delayed +25 mins.");
     } catch {
       toast.error("Failed to inject delay.");
+    }
+  };
+
+  const handleClearIncidents = async () => {
+    if (!data?.truck?.id) return;
+    try {
+      await clearTruckIncidents(data.truck.id);
+      await refresh();
+      toast.success("All incidents cleared. Truck status reset to In Transit.");
+    } catch {
+      toast.error("Failed to clear incidents.");
+    }
+  };
+
+  const handleResetFleet = async () => {
+    setIsSimulating(true);
+    try {
+      await resetLogisticsDemo();
+      await refresh();
+      toast.success("All trucks reset to In Transit (15-45% progress)!");
+    } catch {
+      toast.error("Failed to reset fleet.");
+    } finally {
+      setIsSimulating(false);
     }
   };
 
@@ -360,6 +412,17 @@ function TruckTrackingContent() {
                     <FastForward className="size-3.5 mr-1.5 text-primary" />
                     Simulate All Fleet
                   </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleResetFleet}
+                    disabled={isSimulating}
+                    className="h-8 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-background shadow-2xs rounded-none cursor-pointer"
+                    title="Reset all fleet trucks to In Transit with pending progress (15-45%)"
+                  >
+                    <RotateCcw className="size-3.5 mr-1.5 text-blue-600" />
+                    Reset Fleet
+                  </Button>
                 </div>
 
                 {/* Incident Injection */}
@@ -372,6 +435,18 @@ function TruckTrackingContent() {
                 >
                   <AlertTriangle className="size-3.5 mr-1.5 text-amber-600" />
                   Inject Incident (+25m)
+                </Button>
+
+                {/* Clear Incidents */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClearIncidents}
+                  className="h-9 text-xs font-semibold text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800 bg-rose-50/40 hover:bg-rose-100/60 dark:bg-rose-950/20 rounded-none cursor-pointer"
+                  disabled={isSimulating}
+                >
+                  <Trash2 className="size-3.5 mr-1.5 text-rose-600" />
+                  Clear Incidents
                 </Button>
 
                 {/* Live Step Controls */}

@@ -180,9 +180,16 @@ export function POTable({ orders = [], onSelectPO, onRowClick, className }: POTa
           const amountVal = typeof rawAmount === "number" ? rawAmount : Number(rawAmount) || 0;
 
           // Safely resolve truck / logistics
+          const poDigits = code.replace(/\D/g, "");
+          const fallbackTruck = poDigits ? `TRK-${poDigits.padStart(4, "0")}` : `TRK-000${(idx % 4) + 1}`;
           const truckCode = resolveString(
-            po.logistics_truck || po.truck_id || po.truck?.truck_code || po.shipment?.tracking_number,
-            `TRK-000${(idx % 4) + 1}`
+            po.truck?.truck_code ||
+            (po.truck as { truck_number?: string })?.truck_number ||
+            po.logistics_truck ||
+            po.truck_id ||
+            (po.shipment as { truck?: { truck_code?: string } })?.truck?.truck_code ||
+            po.shipment?.tracking_number,
+            fallbackTruck
           );
 
           // Safely resolve delivery date
